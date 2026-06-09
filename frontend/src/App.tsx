@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { sessionInit, demoLogin } from '@/lib/api';
+import { sessionInit } from '@/lib/api';
 import type { View, CareerProfile, Application, RejectionPattern, WeeklyBriefing, ConversationEntry } from '@/types';
 import Sidebar from '@/components/Sidebar';
 import AgentChat from '@/components/AgentChat';
@@ -35,12 +35,14 @@ export default function App() {
     async function init() {
       try {
         const params = new URLSearchParams(window.location.search);
-        if (params.get('demo') === 'true') {
-          await demoLogin();
+        const isDemo = params.get('demo') === 'true';
+        if (isDemo) {
+          console.log('[App] demo mode detected — passing to session-init');
           window.history.replaceState({}, '', window.location.pathname);
         }
 
-        const { data } = await sessionInit();
+        const { data } = await sessionInit(isDemo);
+        console.log('[App] session-init response:', { userId: data.userId, agentMode: data.agentMode, currentRole: data.profile?.currentRole });
         setProfile(data.profile);
         setUiHints(data.uiHints || { showPatternAlert: false, highlightStaleApplications: [], staleCount: 0 });
 

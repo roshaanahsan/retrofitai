@@ -6,8 +6,8 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-export const sessionInit = () => api.get('/agent/session-init');
-export const demoLogin = () => api.get('/agent/demo-login');
+export const sessionInit = (demo = false) =>
+  api.get(demo ? '/agent/session-init?demo=true' : '/agent/session-init');
 export const sendChatMessage = (message: string) => api.post('/agent/chat', { message });
 
 export const getProfile = () => api.get('/profile');

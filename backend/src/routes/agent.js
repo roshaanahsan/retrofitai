@@ -79,25 +79,47 @@ router.post('/builder-chat', async (req, res) => {
 
 router.get('/session-init', async (req, res) => {
   try {
-    const userId = req.session.userId;
-    const profile = await mongo.getOrCreateProfile(userId);
-    const staleApps = await mongo.getStaleApplications(userId, 7);
-    const pattern = await mongo.getRejectionPattern(userId);
-    const latestBriefing = await mongo.getLatestWeeklyBriefing(userId);
+    // Demo mode: override userId in this session before doing any lookups
+    if (req.query.demo === 'true') {
+      req.session.userId = 'demo-user';
+      await new Promise((resolve, reject) =>
+        req.session.save((err) => (err ? reject(err) : resolve()))
+      );
+      console.log('[session-init] demo mode — userId set to demo-user');
+    }
 
+    const userId = req.session.userId;
+    console.log('[session-init] userId:', userId);
+
+    const profile = await mongo.getOrCreateProfile(userId);
+    console.log('[session-init] profile.agentMode:', profile.agentMode, '| currentRole:', profile.currentRole);
+
+    const [staleApps, pattern, latestBriefing] = await Promise.all([
+      mongo.getStaleApplications(userId, 7),
+      mongo.getRejectionPattern(userId),
+      mongo.getLatestWeeklyBriefing(userId),
+    ]);
+    console.log('[session-init] staleApps:', staleApps.length, '| pattern:', pattern?.dominantPattern ?? 'none');
+
+    // Proactive briefing is best-effort — a Gemini failure must not crash the session
     let proactiveBriefing = null;
     if (profile.agentMode === 'ACTIVE_SEARCH' || profile.agentMode === 'RETURNING_USER') {
-      const geminiResponse = await gemini.generateProactiveBriefing(
-        profile,
-        staleApps,
-        pattern,
-        latestBriefing
-      );
-      proactiveBriefing = geminiResponse.reply;
-      if (proactiveBriefing) {
-        await mongo.pushConversationEntry(userId, 'agent', proactiveBriefing);
+      try {
+        const geminiResponse = await gemini.generateProactiveBriefing(
+          profile,
+          staleApps,
+          pattern,
+          latestBriefing
+        );
+        proactiveBriefing = geminiResponse.reply;
+        if (proactiveBriefing) {
+          await mongo.pushConversationEntry(userId, 'agent', proactiveBriefing);
+        }
+        await mongo.updateProfile(userId, { agentMode: 'RETURNING_USER', lastActive: new Date() });
+        console.log('[session-init] proactive briefing generated OK');
+      } catch (geminiErr) {
+        console.error('[session-init] proactive briefing failed (non-fatal):', geminiErr.message);
       }
-      await mongo.updateProfile(userId, { agentMode: 'RETURNING_USER', lastActive: new Date() });
     }
 
     res.json({
@@ -112,7 +134,7 @@ router.get('/session-init', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Session init error:', err);
+    console.error('[session-init] fatal error:', err);
     res.status(500).json({ error: 'Session initialization failed' });
   }
 });
