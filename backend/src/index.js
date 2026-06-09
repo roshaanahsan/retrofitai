@@ -15,6 +15,10 @@ const briefingRoutes = require('./routes/briefings');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Cloud Run terminates TLS at the load balancer; trust X-Forwarded-Proto so
+// req.secure = true and express-session sends the Set-Cookie header.
+app.set('trust proxy', 1);
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'

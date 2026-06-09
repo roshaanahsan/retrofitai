@@ -119,7 +119,7 @@ B.S. Computer Science — UC San Diego, 2017`,
     },
     {
       role: 'user',
-      text: '[resume text pasted]',
+      text: 'Full resume text on file (7 years PayPal, Capital One, Finix — payments infrastructure).',
       timestamp: new Date('2026-04-28T10:05:30Z'),
     },
     {

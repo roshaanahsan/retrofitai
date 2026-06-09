@@ -98,9 +98,11 @@ export default function AgentChat({ messages, addMessage, uiHints }: AgentChatPr
             </p>
           </div>
         )}
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
-        ))}
+        {messages
+          .filter((msg) => msg.text.trim() !== '[resume text pasted]')
+          .map((msg, i) => (
+            <MessageBubble key={i} message={msg} />
+          ))}
         {isTyping && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
