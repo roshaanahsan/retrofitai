@@ -7,6 +7,7 @@ const api = axios.create({
 });
 
 export const sessionInit = () => api.get('/agent/session-init');
+export const demoLogin = () => api.get('/agent/demo-login');
 export const sendChatMessage = (message: string) => api.post('/agent/chat', { message });
 
 export const getProfile = () => api.get('/profile');

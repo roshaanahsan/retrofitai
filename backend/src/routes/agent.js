@@ -53,6 +53,30 @@ router.post('/chat', async (req, res) => {
   }
 });
 
+router.get('/demo-login', async (req, res) => {
+  req.session.userId = 'demo-user';
+  req.session.save((err) => {
+    if (err) return res.status(500).json({ error: 'Session save failed' });
+    res.json({ ok: true, userId: 'demo-user' });
+  });
+});
+
+router.post('/builder-chat', async (req, res) => {
+  try {
+    const { message, sessionId } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required' });
+
+    // Use provided sessionId or fall back to the user's session
+    const resolvedSessionId = sessionId || req.session.userId;
+
+    const result = await gemini.callAgentBuilder(message, resolvedSessionId);
+    res.json(result);
+  } catch (err) {
+    console.error('Agent Builder error:', err);
+    res.status(500).json({ error: err.message || 'Agent Builder error' });
+  }
+});
+
 router.get('/session-init', async (req, res) => {
   try {
     const userId = req.session.userId;

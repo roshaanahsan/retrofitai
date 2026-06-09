@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { sessionInit } from '@/lib/api';
+import { sessionInit, demoLogin } from '@/lib/api';
 import type { View, CareerProfile, Application, RejectionPattern, WeeklyBriefing, ConversationEntry } from '@/types';
 import Sidebar from '@/components/Sidebar';
 import AgentChat from '@/components/AgentChat';
@@ -34,6 +34,12 @@ export default function App() {
 
     async function init() {
       try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('demo') === 'true') {
+          await demoLogin();
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+
         const { data } = await sessionInit();
         setProfile(data.profile);
         setUiHints(data.uiHints || { showPatternAlert: false, highlightStaleApplications: [], staleCount: 0 });
