@@ -1,0 +1,11 @@
+node_modules/
+.env
+cloudrun-env.yaml
+dist/
+build/
+.DS_Store
+*.log
+reports/
+.vercel/
+screenshot*.mjs
+*.png
