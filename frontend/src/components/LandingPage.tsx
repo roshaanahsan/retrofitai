@@ -1,4 +1,4 @@
-export default function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+export default function LandingPage({ onGetStarted }: { onGetStarted: () => void | Promise<void> }) {
 
   return (
     <div

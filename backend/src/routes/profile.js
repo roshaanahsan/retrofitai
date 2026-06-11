@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const mongo = require('../services/mongoService');
+const mcp = require('../services/mcpService');
 const gemini = require('../services/geminiService');
 
 router.get('/', async (req, res) => {
   try {
-    const profile = await mongo.getOrCreateProfile(req.session.userId);
+    const profile = await mongo.getProfileForAgent(req.session.userId);
     res.json(profile);
   } catch (err) {
     console.error('Profile GET error:', err);
@@ -15,6 +16,7 @@ router.get('/', async (req, res) => {
 
 router.patch('/', async (req, res) => {
   try {
+    const userId = req.session.userId;
     const allowed = [
       'currentRole', 'targetRole', 'targetIndustry', 'yearsExperience',
       'resumeText', 'skills', 'salaryMin', 'salaryMax', 'location',
@@ -24,7 +26,10 @@ router.patch('/', async (req, res) => {
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
     }
-    const profile = await mongo.updateProfile(req.session.userId, updates);
+    const profile = await mongo.updateProfile(userId, updates);
+    mcp.agentUpdateProfile(userId, updates, 'PATCH /api/profile').catch((e) => {
+      console.warn('[profile PATCH] MCP mirror failed:', e.message);
+    });
     res.json(profile);
   } catch (err) {
     console.error('Profile PATCH error:', err);
@@ -46,6 +51,9 @@ router.post('/infer-from-resume', async (req, res) => {
     if (fields.yearsExperience) updates.yearsExperience = fields.yearsExperience;
     if (fields.skills?.length) updates.skills = fields.skills;
     const profile = await mongo.updateProfile(userId, updates);
+    mcp.agentUpdateProfile(userId, updates, 'POST /api/profile/infer-from-resume').catch((e) => {
+      console.warn('[infer-from-resume] MCP mirror failed:', e.message);
+    });
     res.json(profile);
   } catch (err) {
     console.error('Resume inference error:', err);

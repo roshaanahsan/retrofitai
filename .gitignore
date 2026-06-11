@@ -10,4 +10,20 @@ build/
 reports/
 .vercel/
 screenshot*.mjs
+screenshot*.js
+full_test.js
+final_check.js
 *.png
+
+# Local AI / editor tooling — not part of the product
+.claude/
+.agents/
+skills-lock.json
+CLAUDE.md
+
+# Accidental nested scratch folder
+hireiq/
+
+# Root-level dev-only puppeteer installs
+/package.json
+/package-lock.json

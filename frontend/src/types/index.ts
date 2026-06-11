@@ -24,7 +24,8 @@ export type AgentActionType =
   | 'PROFILE_EDIT_TRIGGER'
   | 'PROFILE_EDIT_REQUEST'
   | 'EDIT_PROFILE_SUGGEST'
-  | 'RECOMPARE_PROMPT';
+  | 'RECOMPARE_PROMPT'
+  | 'PATTERN_ANALYSIS_RESULT';
 
 export interface FinalizeResult {
   rankedJobs: {
@@ -43,6 +44,14 @@ export interface FinalizeResult {
   newApplicationsCreated: number;
   coverLetterReady: boolean;
   coverLetterJobId: string;
+}
+
+export interface AgentWorkingComplete {
+  data: FinalizeResult | null;
+  profileError?: string;
+  finalizeError?: string;
+  analysisSucceeded: number;
+  analysisFailed: number;
 }
 
 export interface ProactiveAction {
@@ -131,6 +140,56 @@ export interface WeeklyBriefing {
   pdfPath: string | null;
 }
 
+export interface DashboardStats {
+  totalApplications: number;
+  rejections: number;
+  interviews: number;
+  staleCount: number;
+  jobsAnalyzed: number;
+  responseRate: number;
+}
+
+export interface DashboardPattern {
+  dominantPattern: string | null;
+  patternConfidence: string | null;
+  insight: string | null;
+  recommendedActions: string[];
+  totalRejections?: number;
+  readyForAnalysis?: boolean;
+}
+
+export interface DashboardApplication {
+  _id: string;
+  company: string;
+  role: string;
+  status: string;
+  daysSinceApply: number;
+  rejectionStage: string | null;
+}
+
+export interface DashboardTopJob {
+  _id: string;
+  company: string;
+  jobTitle: string;
+  matchScore: number;
+  verdict: string;
+}
+
+export interface AgentDashboard {
+  stats: DashboardStats;
+  pattern: DashboardPattern | null;
+  briefing: { weekNumber: number; momentumScore: number; momentumTrend: string } | null;
+  applications: DashboardApplication[];
+  topJobs: DashboardTopJob[];
+  profileSummary: {
+    name: string;
+    currentRole: string;
+    targetRole: string;
+    yearsExperience: number;
+    skills: string[];
+  };
+}
+
 export interface SessionInitResponse {
   userId: string;
   agentMode: CareerProfile['agentMode'];
@@ -142,9 +201,8 @@ export interface SessionInitResponse {
     highlightStaleApplications: string[];
     staleCount: number;
   };
+  dashboard?: AgentDashboard;
 }
-
-export type View = 'dashboard' | 'analyze' | 'pipeline' | 'insights' | 'briefing';
 
 // ─── Autonomous Agent Types ───────────────────────────────────────────────────
 
@@ -169,25 +227,77 @@ export interface AgentEvent {
     | 'step_complete'
     | 'pipeline_complete'
     | 'pipeline_skip'
-    | 'pipeline_error';
+    | 'pipeline_error'
+    | 'plan_ready'
+    | 'mission_complete'
+    | 'mission_error';
   ts: number;
   message?: string;
   op?: string;
   collection?: string;
   detail?: string;
   company?: string;
-  result?: string;
+  result?: string | MissionStepResult;
   summary?: AgentPipelineSummary;
+  // mission fields
+  missionTitle?: string;
+  steps?: MissionStep[];
+  stepIndex?: number;
+  stepId?: string;
+  stepCount?: number;
+  stepResult?: MissionStepResult;
+}
+
+export interface MissionStep {
+  id: string;
+  title: string;
+  description?: string;
+  status?: 'pending' | 'running' | 'done' | 'error';
+}
+
+export type MissionStepResult =
+  | { type: 'profile_summary'; targetRole: string; skillCount: number; skills: string[] }
+  | { type: 'pattern_analysis'; dominantPattern: string; patternConfidence: string; insight: string; recommendedActions: string[]; breakdown: Record<string, number>; totalRejections: number; totalApplications: number }
+  | { type: 'skill_gaps'; topKeywords: { keyword: string; count: number }[]; chartData: SkillGapChartData | null }
+  | { type: 'weekly_briefing'; momentumScore: number; momentumTrend: string; priorityActions: { action: string; impact: string }[]; bestPerformingCategory: string }
+  | { type: 'followup_draft'; draftId: string; company: string; subject: string; body: string }
+  | { type: 'cover_letter'; company: string; jobTitle: string; matchScore: number; coverLetterText: string; coverLetterStrategy: string }
+  | { type: 'cover_letter_pick'; jobs: { company: string; jobTitle: string; matchScore: number; verdict?: string }[] }
+  | { type: 'job_rankings'; jobs: { company: string; jobTitle: string; matchScore: number; verdict: string; topGap: string | null }[]; targetRole?: string }
+  | { type: 'insufficient_data' }
+  | { type: 'no_stale_apps' }
+  | { type: 'no_jobs' }
+  | { type: 'unknown' }
+  | { type: 'error'; error: string };
+
+export interface SkillGapChartData {
+  profileSkills: string[];
+  strongMatches: string[];
+  gaps: string[];
+  company: string;
+  jobTitle: string;
+  matchScore: number;
+}
+
+export interface ActiveMission {
+  goal: string;
+  missionTitle: string;
+  steps: MissionStep[];
+  currentStepIndex: number;
+  status: 'planning' | 'running' | 'complete' | 'error';
+  results: Record<number, MissionStepResult>;
 }
 
 export interface AgentDraft {
   _id: string;
   userId: string;
+  type?: 'followup' | 'pattern' | 'briefing';
   applicationId: string | null;
   company: string;
   role: string;
   subject: string;
   body: string;
+  payload?: Record<string, unknown> | null;
   status: 'pending' | 'sent' | 'dismissed';
   createdAt: string;
   runId: string | null;

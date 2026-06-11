@@ -27,7 +27,7 @@ const careerProfileSchema = new mongoose.Schema({
   searchStartDate: { type: String, default: '' },
   agentMode: {
     type: String,
-    enum: ['NEW_USER', 'PROFILE_COMPLETE', 'ACTIVE_SEARCH', 'RETURNING_USER'],
+    enum: ['NEW_USER', 'PROFILE_COMPLETE', 'ACTIVE_SEARCH', 'PATTERN_DETECTED', 'RETURNING_USER'],
     default: 'NEW_USER',
   },
   intakeStep: { type: Number, default: 0 },

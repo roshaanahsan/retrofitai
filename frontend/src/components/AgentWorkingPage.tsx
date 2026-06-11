@@ -1,11 +1,31 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { Loader2, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
 import { analyzeJob, updateProfile, inferProfileFromResume, finalizeAnalysis } from '@/lib/api';
-import type { FinalizeResult } from '@/types';
+import axios from 'axios';
+import type { AgentWorkingComplete } from '@/types';
+
+const ANALYZE_RETRIES = 3;
+const ANALYZE_RETRY_DELAY_MS = 2000;
 
 interface Props {
   jobs: string[];
   bio: string;
-  onComplete: (batchId: string, data: FinalizeResult | null) => void;
+  onComplete: (batchId: string, result: AgentWorkingComplete) => void;
+}
+
+type JobStatusState = 'pending' | 'analyzing' | 'success' | 'failed';
+
+interface JobStatusItem {
+  label: string;
+  status: JobStatusState;
+  matchScore?: number;
+  jobDescription: string;
+}
+
+function jobLabel(jd: string): string {
+  const line = jd.trim().split('\n')[0].trim();
+  if (!line) return 'Untitled position';
+  return line.length > 56 ? `${line.slice(0, 53)}...` : line;
 }
 
 const STEPS = [
@@ -16,16 +36,70 @@ const STEPS = [
   'Preparing your dashboard',
 ];
 
-const STEP_DELAY = 2000;
+const STEP_DELAY = 800;
 
 export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
   const [activeStep, setActiveStep] = useState(0);
   const [step5Done, setStep5Done] = useState(false);
   const firedRef = useRef(false);
   const activeStepRef = useRef(0);
-  const finalizeResultRef = useRef<{ data: FinalizeResult | null } | null>(null);
+  const finalizeResultRef = useRef<AgentWorkingComplete | null>(null);
+  const [pageError, setPageError] = useState('');
+  const [jobStatuses, setJobStatuses] = useState<JobStatusItem[]>(() =>
+    jobs.map((jd) => ({ label: jobLabel(jd), status: 'pending', jobDescription: jd })),
+  );
   const completedRef = useRef(false);
   const batchIdRef = useRef(`batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+
+  const analyzeOneJob = useCallback(async (index: number): Promise<boolean> => {
+    const jd = jobs[index];
+    if (!jd) return false;
+
+    setJobStatuses((prev) =>
+      prev.map((j, i) => (i === index ? { ...j, status: 'analyzing', matchScore: undefined } : j)),
+    );
+
+    for (let attempt = 1; attempt <= ANALYZE_RETRIES; attempt++) {
+      try {
+        const r = await analyzeJob(jd, bio, batchIdRef.current);
+        const analysis = r.data.jobAnalysis;
+        const score = analysis?.matchScore ?? 0;
+        const title = analysis?.jobTitle?.trim();
+        setJobStatuses((prev) =>
+          prev.map((j, i) =>
+            i === index
+              ? { ...j, status: 'success', matchScore: score, label: title || jobLabel(jd) }
+              : j,
+          ),
+        );
+        return true;
+      } catch {
+        if (attempt < ANALYZE_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, ANALYZE_RETRY_DELAY_MS * attempt));
+          continue;
+        }
+        setJobStatuses((prev) =>
+          prev.map((j, i) => (i === index ? { ...j, status: 'failed', matchScore: undefined } : j)),
+        );
+        return false;
+      }
+    }
+    return false;
+  }, [jobs, bio]);
+
+  async function handleRetry(index: number) {
+    const wasFailed = jobStatuses[index]?.status === 'failed';
+    const ok = await analyzeOneJob(index);
+    if (wasFailed && finalizeResultRef.current) {
+      if (ok) {
+        finalizeResultRef.current.analysisSucceeded += 1;
+        finalizeResultRef.current.analysisFailed = Math.max(
+          0,
+          finalizeResultRef.current.analysisFailed - 1,
+        );
+      }
+    }
+  }
 
   function setStep(n: number) {
     activeStepRef.current = n;
@@ -36,7 +110,14 @@ export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
     if (completedRef.current) return;
     completedRef.current = true;
     setStep5Done(true);
-    setTimeout(() => onComplete(batchIdRef.current, finalizeResultRef.current?.data ?? null), 700);
+    setTimeout(
+      () => onComplete(batchIdRef.current, finalizeResultRef.current ?? {
+        data: null,
+        analysisSucceeded: 0,
+        analysisFailed: 0,
+      }),
+      700,
+    );
   }
 
   useEffect(() => {
@@ -45,31 +126,62 @@ export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
       const batchId = batchIdRef.current;
 
       const run = async () => {
-        // Fire profile inference + agentMode update concurrently — don't block job analysis
-        const profilePromise = bio
-          ? inferProfileFromResume(bio).catch(() =>
-              updateProfile({ resumeText: bio }).catch(() => {})
-            )
-          : Promise.resolve();
-        const agentModePromise = updateProfile({ agentMode: 'ACTIVE_SEARCH' }).catch(() => {});
+        // Save profile — non-fatal: job analysis works even if this fails
+        try {
+          if (bio) {
+            // Always persist bio first — infer is best-effort enrichment
+            await updateProfile({ resumeText: bio, agentMode: 'ACTIVE_SEARCH' });
+            try {
+              await inferProfileFromResume(bio);
+            } catch {
+              /* resumeText already saved */
+            }
+          } else {
+            await updateProfile({ agentMode: 'ACTIVE_SEARCH' });
+          }
+        } catch { /* non-fatal — proceed to job analysis */ }
 
-        // Analyze jobs in batches of 2 (safe under Gemini rate limits, ~2× faster than sequential)
-        for (let i = 0; i < jobs.length; i += 2) {
-          const batch = jobs.slice(i, i + 2);
-          await Promise.allSettled(batch.map((jd) => analyzeJob(jd, bio, batchId)));
+        // Sequential analysis — avoids Gemini rate limits and MCP stdio contention
+        let analysisSucceeded = 0;
+        let analysisFailed = 0;
+        for (let i = 0; i < jobs.length; i++) {
+          const ok = await analyzeOneJob(i);
+          if (ok) analysisSucceeded += 1;
+          else analysisFailed += 1;
         }
 
-        // Ensure profile is saved before we finalize
-        await Promise.allSettled([profilePromise, agentModePromise]);
+        let data: AgentWorkingComplete['data'] = null;
+        let finalizeError: string | undefined;
 
-        let data: FinalizeResult | null = null;
-        try {
-          // skipCoverLetter=true — saves ~10s; user can generate it on demand later
-          const r = await finalizeAnalysis(batchId, jobs.length, true);
-          data = r.data;
-        } catch { /* data stays null */ }
+        if (analysisSucceeded > 0) {
+          try {
+            const r = await finalizeAnalysis(batchId, analysisSucceeded, true);
+            data = r.data;
+            if (data && data.newApplicationsCreated === 0) {
+              finalizeError =
+                'Jobs were scored but no applications were added to your pipeline. This can happen if analyses are incomplete — try running setup again.';
+              setPageError(finalizeError);
+            }
+          } catch (err) {
+            if (axios.isAxiosError(err) && err.response?.status === 404) {
+              finalizeError =
+                'Could not find scored jobs for this batch. Please retry failed jobs or run setup again.';
+            } else {
+              finalizeError = 'Failed to finalize your pipeline. Please try again.';
+            }
+            setPageError(finalizeError);
+          }
+        } else {
+          finalizeError = 'All job analyses failed. Check your connection and try again, or retry individual jobs below.';
+          setPageError(finalizeError);
+        }
 
-        finalizeResultRef.current = { data };
+        finalizeResultRef.current = {
+          data,
+          finalizeError,
+          analysisSucceeded,
+          analysisFailed,
+        };
         if (activeStepRef.current >= 5) completeStep5();
       };
 
@@ -167,8 +279,13 @@ export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
         <span style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em' }}>RetrofitAI</span>
       </div>
 
-      {/* Orb — bigger */}
-      <svg width="180" height="180" viewBox="0 0 140 140" style={{ marginBottom: 32, overflow: 'visible' }}>
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        width: '100%', maxWidth: 400, padding: '0 24px', boxSizing: 'border-box',
+      }}>
+      {/* Orb */}
+      <div style={{ width: 180, height: 180, marginBottom: 28, overflow: 'hidden', flexShrink: 0 }}>
+      <svg width="180" height="180" viewBox="0 0 140 140" style={{ display: 'block', overflow: 'hidden' }}>
         <defs>
           <linearGradient id="aw-arcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#16A34A" />
@@ -206,14 +323,77 @@ export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
           </svg>
         </g>
       </svg>
+      </div>
 
       {/* Label + heading */}
       <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8', margin: '0 0 6px 0' }}>
         Agent is working
       </p>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', margin: '0 0 22px 0', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', margin: '0 0 18px 0', letterSpacing: '-0.02em', lineHeight: 1.2, textAlign: 'center' }}>
         Analyzing {jobs.length} position{jobs.length !== 1 ? 's' : ''}
       </h2>
+
+      {/* Parallel job progress */}
+      {jobStatuses.length > 0 && (
+        <div style={{ width: '100%', marginBottom: 18, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, fontWeight: 500, color: '#94A3B8', margin: '0 0 12px 0', letterSpacing: '0.04em' }}>
+            {(() => {
+              const done = jobStatuses.filter((j) => j.status === 'success' || j.status === 'failed').length;
+              const analyzing = jobStatuses.filter((j) => j.status === 'analyzing').length;
+              if (done === jobStatuses.length) return `All ${jobStatuses.length} positions scored`;
+              if (analyzing > 0) return `Scoring ${analyzing} position${analyzing !== 1 ? 's' : ''} simultaneously…`;
+              return `Queuing analyses…`;
+            })()}
+          </p>
+
+          {/* Job dots row */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            {jobStatuses.map((job, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <div
+                  title={job.label}
+                  style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    transition: 'all 200ms ease',
+                    background:
+                      job.status === 'success' ? '#16A34A'
+                      : job.status === 'failed' ? '#DC2626'
+                      : job.status === 'analyzing' ? '#16A34A'
+                      : '#C8D0DE',
+                    opacity: job.status === 'pending' ? 0.4 : 1,
+                    animation: job.status === 'analyzing' ? 'aw-breathe1 1.1s ease-in-out infinite' : undefined,
+                  }}
+                />
+                {job.status === 'success' && job.matchScore !== undefined && (
+                  <span style={{ fontSize: 9, fontWeight: 600, color: '#16A34A' }}>{job.matchScore}</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Failed job retry buttons */}
+          {jobStatuses.map((job, i) => job.status === 'failed' && (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
+              <XCircle size={13} color="#DC2626" />
+              <span style={{ fontSize: 12, color: '#DC2626', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {job.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleRetry(i)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  fontSize: 11, fontWeight: 600, color: '#15803D',
+                  background: '#F0FDF4', border: '1px solid #BBF7D0',
+                  borderRadius: 8, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <RotateCcw size={11} /> Retry
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Single-step card — stat card gradient, 18px radius */}
       <div style={{
@@ -221,7 +401,8 @@ export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
         border: '1px solid #E2E8F0',
         borderRadius: 18,
         boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
-        width: 320,
+        width: '100%',
+        maxWidth: 320,
         height: 60,
         display: 'flex',
         alignItems: 'center',
@@ -266,11 +447,22 @@ export default function AgentWorkingPage({ jobs, bio, onComplete }: Props) {
           </div>
         )}
       </div>
+      </div>
 
-      {/* Bottom caption */}
-      <p style={{ position: 'absolute', bottom: 28, fontSize: 12, fontWeight: 300, color: '#94A3B8', margin: 0 }}>
-        Analyzing {jobs.length} job{jobs.length !== 1 ? 's' : ''} against your profile
-      </p>
+      {/* Bottom caption / error */}
+      {pageError ? (
+        <p style={{
+          position: 'absolute', bottom: 28, fontSize: 12, fontWeight: 500,
+          color: '#DC2626', margin: 0, maxWidth: 360, textAlign: 'center', lineHeight: 1.5,
+          padding: '0 24px',
+        }}>
+          {pageError}
+        </p>
+      ) : (
+        <p style={{ position: 'absolute', bottom: 28, fontSize: 12, fontWeight: 300, color: '#94A3B8', margin: 0 }}>
+          Analyzing {jobs.length} job{jobs.length !== 1 ? 's' : ''} against your profile
+        </p>
+      )}
     </div>
   );
 }

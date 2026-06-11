@@ -20,7 +20,7 @@ export const inferProfileFromResume = (resumeText: string) =>
   api.post('/profile/infer-from-resume', { resumeText }, { timeout: 30000 });
 
 export const analyzeJob = (jobDescription: string, bio = '', batchId = '') =>
-  api.post('/jobs/analyze', { jobDescription, bio, batchId }, { timeout: 45000 });
+  api.post('/jobs/analyze', { jobDescription, bio, batchId }, { timeout: 120000 });
 export const generateCoverLetter = (jobId: string) => api.post(`/jobs/${jobId}/cover-letter`, {}, { timeout: 45000 });
 export const getJobAnalyses = (batchId = '') =>
   api.get(batchId ? `/jobs?batchId=${encodeURIComponent(batchId)}` : '/jobs');
@@ -28,6 +28,8 @@ export const reanalyzeAllJobs = () => api.post<{ count: number; total: number }>
 
 export const getApplications = () => api.get('/applications');
 export const createApplication = (data: Record<string, unknown>) => api.post('/applications', data);
+export const seedDemoRejections = () =>
+  api.post<{ created: number; skipped?: boolean; data: unknown[] }>('/applications/seed-demo-rejections');
 export const updateApplication = (appId: string, data: Record<string, unknown>) =>
   api.patch(`/applications/${appId}`, data);
 export const requestFollowUp = (appId: string) => api.post(`/applications/${appId}/follow-up`);
@@ -94,11 +96,48 @@ export async function runAutonomousPipeline(onEvent: (e: AgentEvent) => void): P
   }
 }
 
+// ─── Mission: user-initiated multi-step agent execution (NDJSON streaming) ────
+
+export async function runMission(goal: string, onEvent: (e: AgentEvent) => void): Promise<void> {
+  const response = await fetch(`${API_BASE}/agent/mission`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal }),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`mission failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        try { onEvent(JSON.parse(trimmed) as AgentEvent); } catch { /* skip malformed */ }
+      }
+    }
+  }
+}
+
+export const getResumeGaps = () => api.get('/jobs/resume-gaps');
+
 // ─── Agent Drafts ──────────────────────────────────────────────────────────────
 
 export const getAgentDrafts = () => api.get('/agent/drafts');
 export const updateDraftStatus = (id: string, status: 'sent' | 'dismissed') =>
   api.patch(`/agent/drafts/${id}`, { status });
+export const confirmDraft = (draftId: string) =>
+  api.post(`/agent/confirm-draft/${draftId}`);
 export const getLatestAgentRun = () => api.get('/agent/latest-run');
 
 export default api;

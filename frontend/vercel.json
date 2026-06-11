@@ -4,5 +4,13 @@
       "source": "/api/:path*",
       "destination": "https://hireiq-backend-529788625956.us-central1.run.app/api/:path*"
     }
+  ],
+  "headers": [
+    {
+      "source": "/favicon.svg",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    }
   ]
 }

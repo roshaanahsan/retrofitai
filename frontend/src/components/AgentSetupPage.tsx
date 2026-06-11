@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Upload, CheckCircle, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle, ChevronRight, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
 import { extractResumeFile } from '@/lib/api';
 
 function WrappedTextarea({
@@ -75,9 +75,27 @@ export default function AgentSetupPage({ onNext, onBuildResume, prefillFile = nu
     let cancelled = false;
     setExtracting(true);
     setExtractedText('');
+    setError('');
+    const EXTRACTION_ERROR =
+      'Could not read text from your resume. Please paste your About Me manually or try another file.';
     extractResumeFile(file)
-      .then((r) => { if (!cancelled) setExtractedText(r.data.text || ''); })
-      .catch(() => { if (!cancelled) setExtractedText(''); })
+      .then((r) => {
+        if (cancelled) return;
+        const text = (r.data.text || '').trim();
+        if (text) {
+          setExtractedText(text);
+          setError('');
+        } else {
+          setExtractedText('');
+          setError(EXTRACTION_ERROR);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExtractedText('');
+          setError(EXTRACTION_ERROR);
+        }
+      })
       .finally(() => { if (!cancelled) setExtracting(false); });
     return () => { cancelled = true; };
   }, [file]);
@@ -99,8 +117,14 @@ export default function AgentSetupPage({ onNext, onBuildResume, prefillFile = nu
     if (f) handleFile(f);
   }
 
+  const EXTRACTION_ERROR_MSG =
+    'Could not read text from your resume. Please paste your About Me manually or try another file.';
+
   function handleNext() {
-    const finalText = bio.trim() || extractedText;
+    const bioText = bio.trim();
+    const extractText = extractedText.trim();
+    const finalText = bioText || extractText;
+
     if (!finalText && !file) {
       setError('Please tell us about yourself or upload a resume to continue.');
       return;
@@ -109,10 +133,17 @@ export default function AgentSetupPage({ onNext, onBuildResume, prefillFile = nu
       setError('Please wait — still reading your resume.');
       return;
     }
+    if (file && !bioText && !extractText) {
+      setError(EXTRACTION_ERROR_MSG);
+      return;
+    }
     onNext(finalText, file);
   }
 
-  const canProceed = bio.trim().length > 0 || (file !== null && !extracting);
+  const hasValidBio = bio.trim().length > 0;
+  const hasValidExtract = file !== null && extractedText.trim().length > 0 && !extracting;
+  const extractionFailed = file !== null && !extracting && !extractedText.trim();
+  const canProceed = hasValidBio || hasValidExtract;
 
   return (
     <div style={{
@@ -254,7 +285,10 @@ export default function AgentSetupPage({ onNext, onBuildResume, prefillFile = nu
           </div>
           <WrappedTextarea
             value={bio}
-            onChange={(e) => { setBio(e.target.value); setError(''); }}
+            onChange={(e) => {
+              setBio(e.target.value);
+              if (e.target.value.trim() || !extractionFailed) setError('');
+            }}
             placeholder={`e.g. Hi, I'm Roshaan. I'm a product manager with 4 years of experience in SaaS. I studied Computer Science at University of Toronto. I'm currently targeting senior PM roles at fintech companies and have been applying for 3 months with limited success...`}
             style={{
               minHeight: 140,
@@ -289,28 +323,39 @@ export default function AgentSetupPage({ onNext, onBuildResume, prefillFile = nu
             gap: 12,
             padding: '16px 20px',
             borderRadius: 18,
-            background: extracting ? '#FFFBEB' : extractedText ? '#F0FDF4' : '#F0FDF4',
-            border: `1.5px solid ${extracting ? '#FDE68A' : extractedText ? '#BBF7D0' : '#BBF7D0'}`,
+            background: extracting ? '#FFFBEB' : extractionFailed ? '#FEF2F2' : '#F0FDF4',
+            border: `1.5px solid ${extracting ? '#FDE68A' : extractionFailed ? '#FECACA' : '#BBF7D0'}`,
           }}>
             {extracting ? (
               <Loader2 size={20} color="#D97706" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+            ) : extractionFailed ? (
+              <AlertTriangle size={20} color="#DC2626" style={{ flexShrink: 0 }} />
             ) : (
               <CheckCircle size={20} color="#16A34A" style={{ flexShrink: 0 }} />
             )}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: extracting ? '#92400E' : '#15803D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{
+                fontSize: 13, fontWeight: 600,
+                color: extracting ? '#92400E' : extractionFailed ? '#DC2626' : '#15803D',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
                 {file.name}
               </div>
-              <div style={{ fontSize: 11, color: extracting ? '#B45309' : '#16A34A', marginTop: 2 }}>
+              <div style={{
+                fontSize: 11,
+                color: extracting ? '#B45309' : extractionFailed ? '#B91C1C' : '#16A34A',
+                marginTop: 2,
+                lineHeight: 1.4,
+              }}>
                 {extracting
                   ? 'Reading resume text...'
-                  : extractedText
-                  ? `${(file.size / 1024).toFixed(0)} KB · Text extracted`
-                  : `${(file.size / 1024).toFixed(0)} KB · Ready to use`}
+                  : extractionFailed
+                  ? 'Could not read text — paste About Me above or try another file'
+                  : `${(file.size / 1024).toFixed(0)} KB · Text extracted`}
               </div>
             </div>
             <button
-              onClick={() => { setFile(null); setExtractedText(''); }}
+              onClick={() => { setFile(null); setExtractedText(''); setError(''); }}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 fontSize: 12, color: '#64748B', fontFamily: 'inherit', padding: '4px 8px',

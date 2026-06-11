@@ -50,6 +50,8 @@ interface Props {
   onStart: (jobs: string[]) => void;
 }
 
+const MAX_JOBS = 3;
+
 const DEMO_JOBS = [
   `Staff Software Engineer – Infrastructure Platform
 Stripe · Remote (US)
@@ -108,62 +110,6 @@ Preferred qualifications:
 - Experience with Borg, Kubernetes, or similar cluster management systems
 - Contributions to open-source infrastructure projects
 - Strong background in storage systems, file systems, or databases`,
-
-  `Staff Engineer – Backend Platform
-Notion · San Francisco, CA / Remote
-
-Notion's Backend Platform team is hiring a Staff Engineer to lead the distributed systems that power our product for 30M+ users. You'll own critical backend infrastructure and drive the technical direction for scalability and reliability across the stack.
-
-Responsibilities:
-- Lead architecture and delivery of backend services handling large-scale data and real-time sync
-- Drive technical roadmap decisions across storage, compute, and internal APIs
-- Partner with product and infrastructure teams to improve system reliability at scale
-- Mentor senior engineers and elevate the team's engineering bar
-
-What we're looking for:
-- 6–9 years of backend engineering experience, with demonstrated growth toward staff-level impact
-- Strong background building distributed systems and scalable backend services
-- Experience with high-throughput APIs, databases, and cloud infrastructure (GCP or AWS)
-- CS fundamentals — systems design, algorithms, data structures
-- Track record of taking ownership of complex cross-team technical projects
-- Clear written communicator — Notion is an async-first team`,
-
-  `Senior Backend Engineer – Core Infrastructure
-Linear · Remote (Global)
-
-Linear is building the best software project management tool in the world and we need engineers who know how to build backend systems at scale. We're a small, fast team and this role has high ownership and direct product impact.
-
-What you'll work on:
-- Build and scale the backend handling millions of real-time events across our global user base
-- Design distributed systems, data sync pipelines, and developer-facing APIs
-- Take full ownership of features from technical design to production
-- Work directly with the product team to shape the backend architecture
-
-We're looking for:
-- 5–8 years of backend software engineering experience
-- Experience building systems at scale — high-throughput, distributed, real-time
-- Strong CS fundamentals: data structures, algorithms, system design
-- Proficiency in Go, TypeScript/Node.js, or similar backend stack
-- BS/MS in Computer Science or equivalent
-- Self-directed and comfortable working in a remote-first async environment`,
-
-  `Staff Software Engineer – Network Infrastructure
-Cloudflare · Austin, TX / Remote
-
-Cloudflare's global network spans 300+ cities and handles over 55 million HTTP requests per second. Our Network Infrastructure team keeps this machine running and makes it faster. We're hiring a Staff Engineer to lead major technical initiatives across our edge networking stack.
-
-Responsibilities:
-- Lead design and implementation of next-generation routing and traffic management systems
-- Drive technical decisions around our BGP infrastructure, anycast network, and DDoS mitigation
-- Partner with hardware and network engineering teams on co-design of software/hardware solutions
-- Mentor engineers across the team; set technical direction for multi-quarter roadmap items
-
-Must have:
-- 8+ years of software engineering, with 3+ years focused on network systems
-- Deep knowledge of networking protocols: BGP, TCP/IP, DNS, HTTP/2, QUIC
-- Proficiency in C, Go, or Rust; experience with eBPF or kernel networking is a strong plus
-- Experience running software at global internet scale
-- Excellent written communication skills — Cloudflare is async-first`,
 ];
 
 export default function JobEntryPage({ onStart }: Props) {
@@ -175,7 +121,7 @@ export default function JobEntryPage({ onStart }: Props) {
   }
 
   function addJob() {
-    if (jobs.length < 6) setJobs((prev) => [...prev, '']);
+    if (jobs.length < MAX_JOBS) setJobs((prev) => [...prev, '']);
   }
 
   function removeJob(i: number) {
@@ -341,6 +287,7 @@ export default function JobEntryPage({ onStart }: Props) {
                 fontFamily: 'inherit',
                 whiteSpace: 'nowrap',
                 transition: 'background 150ms',
+                opacity: 1,
               }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#DCFCE7'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#F0FDF4'; }}
@@ -422,7 +369,7 @@ export default function JobEntryPage({ onStart }: Props) {
         </div>
 
         {/* Add another */}
-        {jobs.length < 6 && (
+        {jobs.length < MAX_JOBS && (
           <button
             onClick={addJob}
             style={{
@@ -457,7 +404,7 @@ export default function JobEntryPage({ onStart }: Props) {
             }}
           >
             <Plus size={15} />
-            Add another job ({jobs.length}/6)
+            Add another job ({jobs.length}/{MAX_JOBS})
           </button>
         )}
 

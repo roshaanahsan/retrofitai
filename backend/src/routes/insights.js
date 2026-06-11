@@ -1,6 +1,8 @@
 const express = require('express');
+const { MIN_REJECTIONS_FOR_PATTERN } = require('../config');
 const router = express.Router();
 const mongo = require('../services/mongoService');
+const mcp = require('../services/mcpService');
 const gemini = require('../services/geminiService');
 
 router.get('/', async (req, res) => {
@@ -28,8 +30,8 @@ router.post('/recalculate', async (req, res) => {
     const rejections = apps.filter(
       (a) => a.status === 'REJECTED' || a.status === 'NO_RESPONSE'
     );
-    if (rejections.length < 3) {
-      return res.json({ available: false, minimumRequired: 3, current: rejections.length });
+    if (rejections.length < MIN_REJECTIONS_FOR_PATTERN) {
+      return res.json({ available: false, minimumRequired: MIN_REJECTIONS_FOR_PATTERN, current: rejections.length });
     }
 
     const patternResult = await gemini.analyzeRejectionPattern(profile, apps);
@@ -52,10 +54,15 @@ router.post('/recalculate', async (req, res) => {
       missingKeywordsAcrossRejections: patternResult.missingKeywordsAcrossRejections || [],
     };
 
-    await mongo.saveRejectionPattern(patternDoc);
-    await mongo.pushConversationEntry(userId, 'agent', patternResult.reply || 'Pattern analysis complete.');
+    const draft = await mcp.agentInsertPatternDraft(userId, patternDoc, 'POST /api/insights/recalculate');
+    await mcp.agentPushConversation(
+      userId,
+      'agent',
+      patternResult.reply || 'Pattern analysis complete — approve the draft to save it.',
+      'POST /api/insights/recalculate',
+    );
 
-    res.json({ available: true, pattern: patternDoc, reply: patternResult.reply });
+    res.json({ available: true, pattern: patternDoc, draftId: draft._id, reply: patternResult.reply, pendingApproval: true });
   } catch (err) {
     console.error('Recalculate error:', err);
     res.status(500).json({ error: 'Recalculation failed' });

@@ -1,4 +1,5 @@
 const express = require('express');
+const { MIN_REJECTIONS_FOR_PATTERN } = require('../config');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const mongo = require('../services/mongoService');
@@ -18,6 +19,86 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('Applications GET error:', err);
     res.status(500).json({ error: 'Failed to load applications' });
+  }
+});
+
+function daysAgoISO(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().split('T')[0];
+}
+
+const DEMO_REJECTION_SEEDS = [
+  {
+    company: 'Stripe',
+    role: 'Staff Software Engineer – Infrastructure Platform',
+    appliedDate: daysAgoISO(42),
+    rejectedDate: daysAgoISO(14),
+    rejectionStage: 'NO_RESPONSE',
+    notes: 'demo:rejection — no response',
+  },
+  {
+    company: 'Shopify',
+    role: 'Senior Software Engineer – Payments Core',
+    appliedDate: daysAgoISO(28),
+    rejectedDate: daysAgoISO(7),
+    rejectionStage: 'PHONE_SCREEN',
+    notes: 'demo:rejection — phone screen – missing GraphQL',
+  },
+  {
+    company: 'Google',
+    role: 'Senior Software Engineer II – Core Infrastructure',
+    appliedDate: daysAgoISO(21),
+    rejectedDate: daysAgoISO(3),
+    rejectionStage: 'NO_RESPONSE',
+    notes: 'demo:rejection — resume filter',
+  },
+];
+
+router.post('/seed-demo-rejections', async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const existing = await mongo.getApplicationsForUser(userId);
+    const demoApps = existing.filter((a) => (a.notes || '').startsWith('demo:rejection'));
+    if (demoApps.length >= DEMO_REJECTION_SEEDS.length) {
+      return res.json({ created: 0, skipped: true, data: demoApps });
+    }
+
+    const existingDemoCompanies = new Set(demoApps.map((a) => a.company));
+    const created = [];
+
+    for (const seed of DEMO_REJECTION_SEEDS) {
+      if (existingDemoCompanies.has(seed.company)) continue;
+
+      const daysSinceApply = Math.floor(
+        (Date.now() - new Date(seed.appliedDate).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const doc = {
+        _id: `app_${uuidv4().replace(/-/g, '').slice(0, 12)}`,
+        userId,
+        jobAnalysisId: null,
+        company: seed.company,
+        role: seed.role,
+        appliedDate: seed.appliedDate,
+        status: 'REJECTED',
+        statusHistory: [
+          { status: 'APPLIED', date: seed.appliedDate },
+          { status: 'REJECTED', date: seed.rejectedDate },
+        ],
+        rejectionStage: seed.rejectionStage,
+        followUpSent: false,
+        followUpDate: null,
+        daysSinceApply,
+        notes: seed.notes,
+      };
+      await mongo.saveApplication(doc);
+      created.push(doc);
+    }
+
+    res.status(201).json({ created: created.length, data: created });
+  } catch (err) {
+    console.error('seed-demo-rejections error:', err);
+    res.status(500).json({ error: 'Failed to seed demo rejections' });
   }
 });
 
@@ -84,7 +165,7 @@ router.patch('/:appId', async (req, res) => {
     const rejections = apps.filter(
       (a) => a.status === 'REJECTED' || a.status === 'NO_RESPONSE'
     );
-    if (rejections.length >= 3) {
+    if (rejections.length >= MIN_REJECTIONS_FOR_PATTERN) {
       const profile = await mongo.getOrCreateProfile(userId);
       const patternResult = await gemini.analyzeRejectionPattern(profile, apps);
       const patternDoc = {
