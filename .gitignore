@@ -5,6 +5,8 @@ dist/
 build/
 .DS_Store
 *.log
+*.out
+*.err
 reports/
 .vercel/
 screenshot*.mjs

@@ -25,7 +25,9 @@ router.post('/', async (req, res) => {
   try {
     const userId = req.session.userId;
     const { company, role, jobAnalysisId, appliedDate } = req.body;
-    if (!company || !role) return res.status(400).json({ error: 'company and role required' });
+    if (company === undefined || company === null || role === undefined || role === null) {
+      return res.status(400).json({ error: 'company and role required' });
+    }
 
     const appId = `app_${uuidv4().replace(/-/g, '').slice(0, 12)}`;
     const today = appliedDate || new Date().toISOString().split('T')[0];
@@ -110,6 +112,19 @@ router.patch('/:appId', async (req, res) => {
   } catch (err) {
     console.error('Application PATCH error:', err);
     res.status(500).json({ error: 'Failed to update application' });
+  }
+});
+
+router.delete('/:appId', async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { appId } = req.params;
+    // Idempotent delete — always return 200 even if already gone or userId mismatch
+    await mongo.deleteApplication(appId, userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Application DELETE error:', err);
+    res.status(500).json({ error: 'Failed to delete application' });
   }
 });
 

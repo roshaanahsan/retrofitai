@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { sessionInit } from '@/lib/api';
-import type { View, CareerProfile, Application, RejectionPattern, WeeklyBriefing, ConversationEntry } from '@/types';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { sessionInit, resetSession, getLatestBriefing, runAutonomousPipeline, getAgentDrafts, getInsights, getApplications as fetchApplications } from '@/lib/api';
+import type { View, CareerProfile, Application, RejectionPattern, WeeklyBriefing, ConversationEntry, AgentActionType, FinalizeResult, AgentEvent, AgentDraft, AgentPipelineSummary } from '@/types';
 import Sidebar from '@/components/Sidebar';
 import AgentChat from '@/components/AgentChat';
 import DashboardView from '@/views/DashboardView';
@@ -8,6 +9,14 @@ import AnalyzeView from '@/views/AnalyzeView';
 import PipelineView from '@/views/PipelineView';
 import InsightsView from '@/views/InsightsView';
 import BriefingView from '@/views/BriefingView';
+import LandingPage from '@/components/LandingPage';
+import AgentSetupPage from '@/components/AgentSetupPage';
+import ResumeBuilderPage from '@/components/ResumeBuilderPage';
+import JobEntryPage from '@/components/JobEntryPage';
+import AgentWorkingPage from '@/components/AgentWorkingPage';
+
+
+type AppPage = 'landing' | 'setup' | 'resume-builder' | 'job-entry' | 'agent-working' | 'main';
 
 export default function App() {
   const [activeView, setActiveView] = useState<View>('dashboard');
@@ -22,11 +31,44 @@ export default function App() {
     staleCount: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [appPage, setAppPage] = useState<AppPage>('landing');
+  const [setupResumeFile, setSetupResumeFile] = useState<File | null>(null);
+  const [setupResumeText, setSetupResumeText] = useState('');
+  const [userBio, setUserBio] = useState('');
+  const [pendingJobs, setPendingJobs] = useState<string[]>([]);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [profileEditActive, setProfileEditActive] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<'idle' | 'working' | 'done'>('idle');
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  const [agentDrafts, setAgentDrafts] = useState<AgentDraft[]>([]);
+  const [pipelineSummary, setPipelineSummary] = useState<AgentPipelineSummary | null>(null);
   const initRan = useRef(false);
 
-  const addMessage = useCallback((role: 'user' | 'agent', text: string) => {
-    setMessages((prev) => [...prev, { role, text, timestamp: new Date().toISOString() }]);
+  const addMessage = useCallback((
+    role: 'user' | 'agent',
+    text: string,
+    actionType?: AgentActionType | null,
+    actionData?: Record<string, unknown> | null,
+  ) => {
+    setMessages((prev) => [
+      ...prev,
+      { role, text, timestamp: new Date().toISOString(), actionType, actionData },
+    ]);
   }, []);
+
+  const clearMessages = useCallback(() => setMessages([]), []);
+
+  const handleEditProfile = useCallback(() => {
+    setChatOpen(true);
+    addMessage('user', 'I want to Edit My Profile', 'PROFILE_EDIT_TRIGGER', null);
+    addMessage(
+      'agent',
+      'Got it — paste your new About Me below, or use the upload button to drop your resume (PDF or DOCX). Type "cancel" to keep your current profile.',
+      'PROFILE_EDIT_REQUEST',
+      null,
+    );
+    setProfileEditActive(true);
+  }, [addMessage]);
 
   useEffect(() => {
     if (initRan.current) return;
@@ -35,30 +77,55 @@ export default function App() {
     async function init() {
       try {
         const params = new URLSearchParams(window.location.search);
-        const isDemo = params.get('demo') === 'true';
-        if (isDemo) {
-          console.log('[App] demo mode detected — passing to session-init');
+        const forceLanding = params.get('landing') === 'true';
+        if (forceLanding) {
           window.history.replaceState({}, '', window.location.pathname);
+          try { await resetSession(); } catch { /* non-fatal */ }
+          setAppPage('landing');
+          setLoading(false);
+          return;
         }
 
-        const { data } = await sessionInit(isDemo);
+        const { data } = await sessionInit();
         console.log('[App] session-init response:', { userId: data.userId, agentMode: data.agentMode, currentRole: data.profile?.currentRole });
         setProfile(data.profile);
         setUiHints(data.uiHints || { showPatternAlert: false, highlightStaleApplications: [], staleCount: 0 });
 
-        const history = data.profile?.conversationHistory ?? [];
-        if (history.length > 0) {
-          setMessages(history.slice(-30));
-        } else if (data.agentMode === 'NEW_USER') {
-          addMessage('agent', "Welcome to HireIQ. I'm your career strategy agent. Let's start by building your profile. What's your current role and how many years of experience do you have?");
+        if (data.agentMode !== 'NEW_USER') {
+          // Returning user — go straight to dashboard with a clean slate
+          setAppPage('main');
+          addMessage('agent', 'Hi! Ask me anything — I\'ll help.');
+        }
+        // NEW_USER stays on 'landing' (the default)
+
+        try {
+          const { data: bData } = await getLatestBriefing();
+          if (bData.available && bData.briefing) setBriefing(bData.briefing);
+        } catch {
+          // no briefing yet — leave null
         }
 
-        if (data.proactiveBriefing) {
-          addMessage('agent', data.proactiveBriefing);
+        // Fire autonomous agent pipeline for active users (non-blocking)
+        if (['ACTIVE_SEARCH', 'RETURNING_USER', 'PATTERN_DETECTED'].includes(data.agentMode)) {
+          setAgentStatus('working');
+          runAutonomousPipeline((event: AgentEvent) => {
+            setAgentEvents((prev) => [...prev, event]);
+            if (event.type === 'pipeline_complete' && event.summary) {
+              setAgentStatus('done');
+              setPipelineSummary(event.summary);
+              // Refresh downstream data now that agent has written to MongoDB
+              fetchApplications().then(({ data: appsData }) => setApplications(appsData)).catch(() => {});
+              getInsights().then(({ data: insData }) => { if (insData?.available && insData.pattern) setPattern(insData.pattern); }).catch(() => {});
+              getLatestBriefing().then(({ data: bfData }) => { if (bfData?.available && bfData.briefing) setBriefing(bfData.briefing); }).catch(() => {});
+              getAgentDrafts().then(({ data: draftsData }) => { if (draftsData?.data) setAgentDrafts(draftsData.data); }).catch(() => {});
+            } else if (event.type === 'pipeline_skip' || event.type === 'pipeline_error') {
+              setAgentStatus('idle');
+            }
+          }).catch(() => setAgentStatus('idle'));
         }
       } catch (err) {
         console.error('Session init failed:', err);
-        addMessage('agent', "Welcome to HireIQ. I'm your career strategy agent. What's your current role and how many years of experience do you have?");
+        setAppPage('landing');
       } finally {
         setLoading(false);
       }
@@ -66,9 +133,14 @@ export default function App() {
     init();
   }, [addMessage]);
 
+
+
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center" style={{ background: '#09090B' }}>
+      <div
+        className="h-screen flex items-center justify-center"
+        style={{ background: '#F8FAFC', position: 'fixed', inset: 0, zIndex: 50 }}
+      >
         <div className="dots-pulse">
           <span /><span /><span />
         </div>
@@ -76,18 +148,97 @@ export default function App() {
     );
   }
 
+  if (appPage === 'landing') {
+    return (
+      <LandingPage
+        onGetStarted={() => setAppPage('setup')}
+      />
+    );
+  }
+
+  if (appPage === 'setup') {
+    return (
+      <AgentSetupPage
+        prefillFile={setupResumeFile}
+        prefillResumeText={setupResumeText}
+        onBuildResume={() => setAppPage('resume-builder')}
+        onNext={(bio, resumeFile) => {
+          setUserBio(bio || (resumeFile ? `Resume: ${resumeFile.name}` : ''));
+          setAppPage('job-entry');
+        }}
+      />
+    );
+  }
+
+  if (appPage === 'resume-builder') {
+    return (
+      <ResumeBuilderPage
+        onBack={(file, resumeText) => {
+          if (file) setSetupResumeFile(file);
+          if (resumeText) setSetupResumeText(resumeText);
+          setAppPage('setup');
+        }}
+      />
+    );
+  }
+
+  if (appPage === 'job-entry') {
+    return (
+      <JobEntryPage
+        onStart={(jobs) => {
+          setPendingJobs(jobs);
+          setAppPage('agent-working');
+        }}
+      />
+    );
+  }
+
+  if (appPage === 'agent-working') {
+    return (
+      <AgentWorkingPage
+        jobs={pendingJobs}
+        bio={userBio}
+        onComplete={(batchId, data) => {
+          // Wipe stale state immediately
+          setApplications([]);
+          setPattern(null);
+          setBriefing(null);
+          setMessages([]);
+
+          const agentMsg = data
+            ? `I've scored all ${data.totalJobs} position${data.totalJobs !== 1 ? 's' : ''} against your profile. Check the Pipeline tab to see your matches — top jobs are already ranked and ready to apply.`
+            : 'Analysis complete. Your jobs have been analyzed and added to your pipeline. Explore your results using the sidebar.';
+
+          // Fetch fresh profile + applications in parallel, THEN switch to main so
+          // the dashboard renders with data already loaded (no "Tell the agent" flash).
+          Promise.all([
+            fetchApplications().catch(() => ({ data: [] as Application[] })),
+            sessionInit().catch(() => null),
+          ]).then(([appsResult, initResult]) => {
+            if (appsResult?.data) setApplications(appsResult.data);
+            if (initResult?.data) {
+              setProfile(initResult.data.profile);
+              setUiHints(initResult.data.uiHints || { showPatternAlert: false, highlightStaleApplications: [], staleCount: 0 });
+            }
+            addMessage('agent', agentMsg);
+            setAppPage('main');
+          });
+        }}
+      />
+    );
+  }
+
   const momentumScore = briefing?.momentumScore ?? null;
 
   return (
-    <div className="h-screen flex overflow-hidden" style={{ background: 'transparent', position: 'relative', zIndex: 1 }}>
+    <div className="h-screen flex overflow-hidden" style={{ background: '#F8FAFC', position: 'relative' }}>
       <Sidebar
         activeView={activeView}
         onNavigate={setActiveView}
         momentumScore={momentumScore}
-        briefing={briefing}
       />
 
-      <main className="flex-1 overflow-y-auto min-w-0" style={{ position: 'relative', zIndex: 1 }}>
+      <main className="flex-1 overflow-y-auto min-w-0 no-scrollbar" style={{ background: '#F8FAFC', paddingRight: chatOpen ? 0 : 52 }}>
         {activeView === 'dashboard' && (
           <DashboardView
             profile={profile}
@@ -97,15 +248,18 @@ export default function App() {
             briefing={briefing}
             uiHints={uiHints}
             onNavigate={setActiveView}
+            onEditProfile={handleEditProfile}
           />
         )}
-        {activeView === 'analyze' && (
+        {/* Always mounted — CSS hide preserves analysis state across tab switches */}
+        <div style={{ display: activeView === 'analyze' ? 'block' : 'none' }}>
           <AnalyzeView
             applications={applications}
             setApplications={setApplications}
             addMessage={addMessage}
+            openChat={() => setChatOpen(true)}
           />
-        )}
+        </div>
         {activeView === 'pipeline' && (
           <PipelineView
             applications={applications}
@@ -117,7 +271,6 @@ export default function App() {
           <InsightsView
             pattern={pattern}
             setPattern={setPattern}
-            applications={applications}
             addMessage={addMessage}
           />
         )}
@@ -130,14 +283,72 @@ export default function App() {
         )}
       </main>
 
+      {/* Toggle button + label */}
+      <div
+        style={{
+          position: 'absolute',
+          right: chatOpen ? 306 : 8,
+          top: 14,
+          zIndex: 30,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          transition: 'right 200ms ease-in-out',
+        }}
+      >
+        {!chatOpen && (
+          <span style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: '#16A34A',
+            fontFamily: 'Poppins, sans-serif',
+            whiteSpace: 'nowrap',
+          }}>
+            View Agent
+          </span>
+        )}
+        <button
+          onClick={() => setChatOpen((v) => !v)}
+          title={chatOpen ? 'Hide agent' : 'Show agent'}
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 8,
+            background: '#16A34A',
+            border: 'none',
+            outline: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: '#FFFFFF',
+            minHeight: 'unset',
+            flexShrink: 0,
+            transition: 'background 120ms',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#15803D'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#16A34A'; }}
+        >
+          {chatOpen ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+        </button>
+      </div>
+
       <AgentChat
         messages={messages}
         addMessage={addMessage}
+        clearMessages={clearMessages}
         profile={profile}
         setProfile={setProfile}
         uiHints={uiHints}
         setUiHints={setUiHints}
         activeView={activeView}
+        isOpen={chatOpen}
+        onNavigate={setActiveView}
+        agentStatus={agentStatus}
+        agentEvents={agentEvents}
+        pipelineSummary={pipelineSummary}
+        profileEditActive={profileEditActive}
+        setProfileEditActive={setProfileEditActive}
       />
     </div>
   );

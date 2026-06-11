@@ -1,46 +1,54 @@
 import { useEffect, useState } from 'react';
-import { getApplications, updateApplication, requestFollowUp, createApplication } from '@/lib/api';
-import { formatStatus } from '@/lib/utils';
+import { Plus, Loader2, Trash2 } from 'lucide-react';
+import { getApplications, updateApplication, requestFollowUp, createApplication, deleteApplication } from '@/lib/api';
 import type { Application } from '@/types';
+
+import type { AgentActionType } from '@/types';
 
 interface PipelineViewProps {
   applications: Application[];
   setApplications: (apps: Application[]) => void;
-  addMessage: (role: 'user' | 'agent', text: string) => void;
+  addMessage: (role: 'user' | 'agent', text: string, actionType?: AgentActionType | null, actionData?: Record<string, unknown> | null) => void;
 }
 
-const COLUMNS: Application['status'][] = ['APPLIED', 'NO_RESPONSE', 'PHONE_SCREEN', 'INTERVIEW', 'OFFER'];
+const ACTIVE_COLS = ['APPLIED', 'NO_RESPONSE', 'PHONE_SCREEN', 'INTERVIEW', 'OFFER'] as Application['status'][];
 
-const COLUMN_COLORS: Record<string, string> = {
-  APPLIED: '#71717A',
-  NO_RESPONSE: '#71717A',
-  PHONE_SCREEN: '#71717A',
-  INTERVIEW: '#71717A',
-  OFFER: '#71717A',
+const COL_META: Record<string, {
+  label: string;
+  accentColor: string;
+  countBg: string;
+  countColor: string;
+  headerGradient: string;
+}> = {
+  APPLIED:      { label: 'Applied',      accentColor: '#94A3B8', countBg: '#F1F5F9', countColor: '#64748B',  headerGradient: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 60%)' },
+  NO_RESPONSE:  { label: 'No Response',  accentColor: '#D97706', countBg: '#FEF3C7', countColor: '#D97706',  headerGradient: 'linear-gradient(to bottom, #FFFBEB, #FFFFFF 60%)' },
+  PHONE_SCREEN: { label: 'Phone Screen', accentColor: '#16A34A', countBg: '#DCFCE7', countColor: '#16A34A',  headerGradient: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 60%)' },
+  INTERVIEW:    { label: 'Interview',    accentColor: '#15803D', countBg: '#DCFCE7', countColor: '#15803D',  headerGradient: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 60%)' },
+  OFFER:        { label: 'Offer',        accentColor: '#16A34A', countBg: '#DCFCE7', countColor: '#16A34A',  headerGradient: 'linear-gradient(to bottom, #ECFDF5, #FFFFFF 60%)' },
+  REJECTED:     { label: 'Rejected',     accentColor: '#DC2626', countBg: '#FECACA', countColor: '#DC2626',  headerGradient: 'linear-gradient(to bottom, #FEF2F2, #FFFFFF 60%)' },
 };
 
 export default function PipelineView({ applications, setApplications, addMessage }: PipelineViewProps) {
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ company: '', role: '' });
-  const [adding, setAdding] = useState(false);
+  const [dragId, setDragId]       = useState<string | null>(null);
+  const [dragOver, setDragOver]   = useState<string | null>(null);
+  const [showAdd, setShowAdd]     = useState(false);
+  const [addForm, setAddForm]     = useState({ company: '', role: '' });
+  const [adding, setAdding]       = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
-    getApplications().then(({ data }) => setApplications(data)).catch(console.error);
+    getApplications()
+      .then(({ data }) => setApplications(data))
+      .catch(console.error)
+      .finally(() => setDataLoading(false));
   }, [setApplications]);
 
   async function handleDrop(status: Application['status']) {
-    if (!dragId || dragId === status) return;
+    if (!dragId) return;
     const app = applications.find((a) => a._id === dragId);
-    if (!app || app.status === status) {
-      setDragId(null);
-      setDragOver(null);
-      return;
-    }
+    if (!app || app.status === status) { setDragId(null); setDragOver(null); return; }
     try {
-      const updated = applications.map((a) => (a._id === dragId ? { ...a, status } : a));
-      setApplications(updated);
+      setApplications(applications.map((a) => a._id === dragId ? { ...a, status } : a));
       await updateApplication(dragId, { status });
     } catch {
       getApplications().then(({ data }) => setApplications(data));
@@ -49,23 +57,59 @@ export default function PipelineView({ applications, setApplications, addMessage
     setDragOver(null);
   }
 
+  async function handleMarkNoResponse(appId: string) {
+    try {
+      await updateApplication(appId, { status: 'NO_RESPONSE' });
+      setApplications(applications.map((a) => a._id === appId ? { ...a, status: 'NO_RESPONSE' } : a));
+    } catch { addMessage('agent', 'Failed to update status.'); }
+  }
+
   async function handleMarkRejected(appId: string) {
     try {
       await updateApplication(appId, { status: 'REJECTED' });
-      setApplications(applications.map((a) => (a._id === appId ? { ...a, status: 'REJECTED' } : a)));
+      setApplications(applications.map((a) => a._id === appId ? { ...a, status: 'REJECTED' } : a));
+    } catch { addMessage('agent', 'Failed to update status.'); }
+  }
+
+  async function handleDelete(appId: string) {
+    try {
+      await deleteApplication(appId);
+      setApplications(applications.filter((a) => a._id !== appId));
     } catch {
-      addMessage('agent', 'Failed to update application status.');
+      // Still remove from UI — delete is best-effort
+      setApplications(applications.filter((a) => a._id !== appId));
     }
   }
 
+  async function handleAcceptOffer(appId: string) {
+    const app = applications.find((a) => a._id === appId);
+    addMessage('agent', `Congratulations on accepting the offer${app ? ` at ${app.company}` : ''}! Wishing you a great start.`);
+  }
+
+  async function handleDeclineOffer(appId: string) {
+    try {
+      await updateApplication(appId, { status: 'REJECTED' });
+      setApplications(applications.map((a) => a._id === appId ? { ...a, status: 'REJECTED' } : a));
+    } catch { addMessage('agent', 'Failed to update status.'); }
+  }
+
   async function handleFollowUp(appId: string) {
+    const app = applications.find((a) => a._id === appId);
     addMessage('agent', 'Drafting follow-up email...');
     try {
       const { data } = await requestFollowUp(appId);
-      addMessage('agent', `${data.reply}\n\nSubject: ${data.subject}\n\n${data.body}`);
-    } catch {
-      addMessage('agent', 'Failed to draft follow-up. Please try again.');
-    }
+      addMessage(
+        'agent',
+        data.reply || `Here's your follow-up for ${app?.company ?? 'this company'}:`,
+        'FOLLOW_UP_EMAIL',
+        {
+          company: app?.company ?? '',
+          role: app?.role ?? '',
+          subject: data.subject ?? '',
+          body: data.body ?? '',
+        },
+      );
+    } catch { addMessage('agent', 'Failed to draft follow-up. Please try again.'); }
   }
 
   async function handleAddApplication() {
@@ -76,300 +120,475 @@ export default function PipelineView({ applications, setApplications, addMessage
       setApplications([data, ...applications]);
       setAddForm({ company: '', role: '' });
       setShowAdd(false);
-    } catch {
-      addMessage('agent', 'Failed to add application.');
-    } finally {
-      setAdding(false);
-    }
+    } catch { addMessage('agent', 'Failed to add application.'); }
+    finally { setAdding(false); }
   }
 
+  const totalApps = applications.length;
+
   return (
-    <div className="p-6 h-full flex flex-col">
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight" style={{ color: '#FAFAFA' }}>
-            My Pipeline
-          </h1>
-          <p className="text-xs mt-0.5" style={{ color: '#71717A' }}>
-            {applications.length} total applications
+    <div style={{
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      padding: '32px 32px 0',
+      boxSizing: 'border-box',
+      overflow: 'hidden',
+    }}>
+
+      {/* Page header */}
+      <div style={{ marginBottom: 20, flexShrink: 0 }}>
+        <h1 style={{ fontSize: 32, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1 }}>
+          Pipeline
+        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 6 }}>
+          <p style={{ fontSize: 13, fontWeight: 300, color: '#94A3B8' }}>
+            {totalApps > 0
+              ? `${totalApps} application${totalApps !== 1 ? 's' : ''} tracked — drag cards to update status`
+              : 'Add your first application or analyze a job to get started'}
           </p>
+          <button
+            onClick={() => setShowAdd((v) => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              height: 34, padding: '0 16px', flexShrink: 0,
+              borderRadius: 18, border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, fontFamily: 'Poppins, sans-serif',
+              background: showAdd ? '#F1F5F9' : 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+              color: showAdd ? '#94A3B8' : '#FFFFFF',
+              transition: 'background 150ms',
+            }}
+            onMouseEnter={(e) => { if (!showAdd) (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #15803D 0%, #166534 100%)'; }}
+            onMouseLeave={(e) => { if (!showAdd) (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)'; }}
+          >
+            <Plus size={13} /> Add Application
+          </button>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
-          style={{ background: '#00e5ff', color: '#09090B' }}
-        >
-          + Add Application
-        </button>
       </div>
 
+      {/* Add form */}
       {showAdd && (
-        <div
-          className="mb-4 p-4 rounded-xl flex gap-3 items-end"
-          style={{
-            background: 'rgba(24,24,27,0.80)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-          }}
-        >
-          <div className="flex-1">
-            <label
-              className="text-[11px] uppercase tracking-wide font-medium block mb-1.5"
-              style={{ color: '#52525B' }}
-            >
-              Company
-            </label>
-            <input
-              value={addForm.company}
-              onChange={(e) => setAddForm({ ...addForm, company: e.target.value })}
-              placeholder="Stripe"
-              className="w-full rounded-md px-3 py-2 text-sm"
-              style={{
-                background: '#27272A',
-                color: '#FAFAFA',
-                outline: 'none',
-                boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.boxShadow = '0 0 0 2px rgba(0,229,255,0.35), 0 2px 8px 0 rgba(0,0,0,0.20)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px 0 rgba(0,0,0,0.20)';
-              }}
-            />
-          </div>
-          <div className="flex-1">
-            <label
-              className="text-[11px] uppercase tracking-wide font-medium block mb-1.5"
-              style={{ color: '#52525B' }}
-            >
-              Role
-            </label>
-            <input
-              value={addForm.role}
-              onChange={(e) => setAddForm({ ...addForm, role: e.target.value })}
-              placeholder="Senior Software Engineer"
-              className="w-full rounded-md px-3 py-2 text-sm"
-              style={{
-                background: '#27272A',
-                color: '#FAFAFA',
-                outline: 'none',
-                boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.boxShadow = '0 0 0 2px rgba(0,229,255,0.35), 0 2px 8px 0 rgba(0,0,0,0.20)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px 0 rgba(0,0,0,0.20)';
-              }}
-            />
-          </div>
+        <div style={{
+          flexShrink: 0,
+          marginBottom: 16,
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: 18,
+          boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+          padding: '16px 20px',
+          display: 'flex', gap: 12, alignItems: 'flex-end',
+        }}>
+          {(['company', 'role'] as const).map((field) => (
+            <div key={field} style={{ flex: 1 }}>
+              <label style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8', display: 'block', marginBottom: 6 }}>
+                {field === 'company' ? 'Company' : 'Role'}
+              </label>
+              <input
+                value={addForm[field]}
+                onChange={(e) => setAddForm((prev) => ({ ...prev, [field]: e.target.value }))}
+                placeholder={field === 'company' ? 'Stripe' : 'Senior Software Engineer'}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddApplication(); }}
+                style={{
+                  width: '100%', height: 40, borderRadius: 10,
+                  border: '1px solid #E2E8F0', outline: 'none',
+                  fontSize: 13, fontFamily: 'Poppins, sans-serif', fontWeight: 400,
+                  padding: '0 12px', background: '#F8FAFC', color: '#0F172A',
+                  boxSizing: 'border-box', transition: 'border-color 150ms',
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = '#16A34A'; }}
+                onBlur={(e)  => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+              />
+            </div>
+          ))}
           <button
             onClick={handleAddApplication}
             disabled={adding || !addForm.company || !addForm.role}
-            className="px-3 py-2 text-xs font-medium rounded-md transition-colors disabled:opacity-40"
-            style={{ background: '#00e5ff', color: '#09090B' }}
+            style={{
+              height: 40, padding: '0 20px', borderRadius: 18, border: 'none',
+              fontSize: 13, fontWeight: 600, fontFamily: 'Poppins, sans-serif',
+              background: (adding || !addForm.company || !addForm.role) ? '#F1F5F9' : 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+              color: (adding || !addForm.company || !addForm.role) ? '#94A3B8' : '#FFFFFF',
+              cursor: (adding || !addForm.company || !addForm.role) ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              transition: 'background 150ms',
+            }}
           >
-            {adding ? 'Adding...' : 'Add'}
+            {adding ? <><Loader2 size={12} className="animate-spin" /> Adding…</> : 'Add'}
           </button>
           <button
-            onClick={() => setShowAdd(false)}
-            className="px-3 py-2 text-xs rounded-md transition-colors"
-            style={{ background: '#27272A', color: '#71717A', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#A1A1AA'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#71717A'; }}
+            onClick={() => { setShowAdd(false); setAddForm({ company: '', role: '' }); }}
+            style={{
+              height: 40, padding: '0 14px', borderRadius: 18,
+              fontSize: 13, fontWeight: 400, fontFamily: 'Poppins, sans-serif',
+              background: 'transparent', color: '#94A3B8',
+              border: '1px solid #E2E8F0', cursor: 'pointer', flexShrink: 0,
+              transition: 'color 120ms, border-color 120ms',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = '#64748B';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#CBD5E1';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = '#94A3B8';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
+            }}
           >
             Cancel
           </button>
         </div>
       )}
 
-      <div className="flex gap-3 overflow-x-auto flex-1 pb-4">
-        {COLUMNS.map((status) => {
+      {/* Kanban board */}
+      <div
+        className="no-scrollbar"
+        style={{
+          flex: 1,
+          display: 'flex',
+          gap: 12,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          paddingBottom: 32,
+          alignItems: 'stretch',
+        }}
+      >
+        {/* Active columns */}
+        {ACTIVE_COLS.map((status) => {
+          const meta = COL_META[status];
           const colApps = applications.filter((a) => a.status === status);
           const isOver = dragOver === status;
+
           return (
             <div
               key={status}
-              className="shrink-0 w-72 flex flex-col rounded-xl transition-all duration-100"
               style={{
-                background: isOver ? 'rgba(0,30,40,0.70)' : 'rgba(24,24,27,0.65)',
-                backdropFilter: 'blur(12px)',
-                boxShadow: isOver
-                  ? 'inset 0 0 0 1px #00e5ff, 0 2px 8px 0 rgba(0,0,0,0.20)'
-                  : '0 2px 8px 0 rgba(0,0,0,0.20)',
+                width: 234, flexShrink: 0,
+                display: 'flex', flexDirection: 'column',
+                background: isOver ? '#F0FDF4' : '#FFFFFF',
+                border: isOver ? '1.5px solid #16A34A' : '1px solid #E2E8F0',
+                borderRadius: 18,
+                boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+                overflow: 'hidden',
+                transition: 'border 100ms, background 100ms',
               }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(status);
-              }}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(status); }}
               onDragLeave={() => setDragOver(null)}
               onDrop={() => handleDrop(status)}
             >
-              <div
-                className="flex items-center px-3 py-3 gap-1.5"
-                style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.04)' }}
-              >
-                <span
-                  className="text-[11px] font-medium uppercase tracking-wide"
-                  style={{ color: COLUMN_COLORS[status] ?? '#71717A' }}
-                >
-                  {formatStatus(status)}
-                </span>
-                <span
-                  className="text-[10px] tabular-nums font-semibold"
-                  style={{ color: '#FAFAFA' }}
-                >
-                  {colApps.length}
-                </span>
+              {/* Column header */}
+              <div style={{
+                padding: '12px 14px',
+                borderBottom: '1px solid #E2E8F0',
+                background: meta.headerGradient,
+                flexShrink: 0,
+              }}>
+                <div style={{ height: 3, width: 20, borderRadius: 999, background: meta.accentColor, marginBottom: 10 }} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8' }}>
+                    {meta.label}
+                  </p>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: meta.countBg, color: meta.countColor, padding: '1px 6px', borderRadius: 4 }}>
+                    {colApps.length}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2 space-y-1.5">
-                {colApps.map((app) => (
-                  <AppCard
-                    key={app._id}
-                    app={app}
-                    onDragStart={() => setDragId(app._id)}
-                    onMarkRejected={() => handleMarkRejected(app._id)}
-                    onFollowUp={() => handleFollowUp(app._id)}
-                  />
-                ))}
-                {colApps.length === 0 && (
-                  <div
-                    className="flex items-center justify-center py-8 text-xs rounded-md"
-                    style={{ color: '#3F3F46' }}
-                  >
-                    Drop here
-                  </div>
+              {/* Cards */}
+              <div
+                className="no-scrollbar"
+                style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}
+              >
+                {dataLoading ? (
+                  <>
+                    <div style={{ height: 72, borderRadius: 14, background: '#F8FAFC', border: '1px solid #E2E8F0' }} className="animate-pulse" />
+                    <div style={{ height: 58, borderRadius: 14, background: '#F8FAFC', border: '1px solid #E2E8F0' }} className="animate-pulse" />
+                  </>
+                ) : (
+                  <>
+                    {colApps.map((app) => (
+                      <AppCard
+                        key={app._id}
+                        app={app}
+                        onDragStart={() => setDragId(app._id)}
+                        onMarkNoResponse={() => handleMarkNoResponse(app._id)}
+                        onMarkRejected={() => handleMarkRejected(app._id)}
+                        onFollowUp={() => handleFollowUp(app._id)}
+                        onAcceptOffer={() => handleAcceptOffer(app._id)}
+                        onDeclineOffer={() => handleDeclineOffer(app._id)}
+                        onDelete={() => handleDelete(app._id)}
+                      />
+                    ))}
+                    {colApps.length === 0 && (
+                      <div style={{
+                        flex: 1, minHeight: 88,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        borderRadius: 12, border: '1.5px dashed #E2E8F0', color: '#CBD5E1', fontSize: 11,
+                      }}>
+                        Drop here
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           );
         })}
 
-        {/* Rejected */}
-        <div
-          className="shrink-0 w-56 flex flex-col rounded-xl"
-          style={{
-            background: 'rgba(24,24,27,0.65)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-          }}
-        >
-          <div
-            className="flex items-center justify-between px-3 py-3"
-            style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.04)' }}
-          >
-            <span className="text-[11px] font-medium uppercase tracking-wide text-red-400">
-              Rejected
-            </span>
-            <span
-              className="text-[10px] tabular-nums px-1.5 py-0.5 rounded-md"
-              style={{ background: '#27272A', color: '#52525B', boxShadow: '0 0 0 1px rgba(63,63,70,0.5)' }}
-            >
-              {applications.filter((a) => a.status === 'REJECTED').length}
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2 space-y-1.5">
-            {applications
-              .filter((a) => a.status === 'REJECTED')
-              .map((app) => (
-                <div
-                  key={app._id}
-                  className="p-2.5 rounded-md"
-                  style={{
-                    background: 'rgba(69,10,10,0.2)',
-                    boxShadow: '0 0 0 1px rgba(127,29,29,0.25)',
-                    opacity: 0.6,
-                  }}
-                >
-                  <p className="text-xs font-medium truncate" style={{ color: '#FAFAFA' }}>
-                    {app.company}
+        {/* Rejected column */}
+        {(() => {
+          const rejApps = applications.filter((a) => a.status === 'REJECTED');
+          const meta = COL_META['REJECTED'];
+          return (
+            <div style={{
+              width: 234, flexShrink: 0,
+              display: 'flex', flexDirection: 'column',
+              background: '#FFFFFF',
+              border: '1px solid #FECACA',
+              borderRadius: 18,
+              boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                padding: '12px 14px',
+                borderBottom: '1px solid #FECACA',
+                background: meta.headerGradient,
+                flexShrink: 0,
+              }}>
+                <div style={{ height: 3, width: 20, borderRadius: 999, background: meta.accentColor, marginBottom: 10 }} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8' }}>
+                    {meta.label}
                   </p>
-                  <p className="text-[11px] truncate" style={{ color: '#71717A' }}>
-                    {app.role}
-                  </p>
-                  <p className="text-[10px] mt-1" style={{ color: '#52525B' }}>
-                    {app.daysSinceApply}d ago
-                  </p>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: meta.countBg, color: meta.countColor, padding: '1px 6px', borderRadius: 4 }}>
+                    {rejApps.length}
+                  </span>
                 </div>
-              ))}
-          </div>
-        </div>
+              </div>
+              <div
+                className="no-scrollbar"
+                style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}
+              >
+                {dataLoading ? (
+                  <div style={{ height: 58, borderRadius: 14, background: '#FEF2F2', border: '1px solid #FECACA' }} className="animate-pulse" />
+                ) : (
+                  <>
+                    {rejApps.map((app) => (
+                      <div
+                        key={app._id}
+                        style={{
+                          background: '#FEF2F2',
+                          border: '1px solid #FECACA',
+                          borderRadius: 14,
+                          padding: '10px 12px',
+                          opacity: 0.75,
+                          position: 'relative',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{
+                            width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+                            background: '#FECACA',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700, color: '#DC2626',
+                          }}>
+                            {app.company ? app.company.charAt(0).toUpperCase() : '?'}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {app.company}
+                            </p>
+                            <p style={{ fontSize: 11, fontWeight: 300, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+                              {app.role}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleDelete(app._id)}
+                            title="Delete"
+                            style={{
+                              width: 22, height: 22, borderRadius: 6, border: 'none',
+                              background: 'transparent', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: '#FCA5A5', flexShrink: 0, padding: 0,
+                              transition: 'color 120ms, background 120ms',
+                            }}
+                            onMouseEnter={(e) => {
+                              (e.currentTarget as HTMLButtonElement).style.color = '#DC2626';
+                              (e.currentTarget as HTMLButtonElement).style.background = '#FECACA';
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLButtonElement).style.color = '#FCA5A5';
+                              (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                            }}
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                        <p style={{ fontSize: 10, color: '#DC2626', marginTop: 6, fontWeight: 400 }}>
+                          {app.daysSinceApply === 0 ? 'just now' : `${app.daysSinceApply}d ago`}
+                        </p>
+                      </div>
+                    ))}
+                    {rejApps.length === 0 && (
+                      <div style={{
+                        flex: 1, minHeight: 88,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        borderRadius: 12, border: '1.5px dashed #FECACA', color: '#FECACA', fontSize: 11,
+                      }}>
+                        None yet
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
 }
 
 function AppCard({
-  app,
-  onDragStart,
-  onMarkRejected,
-  onFollowUp,
+  app, onDragStart, onMarkNoResponse, onMarkRejected, onFollowUp, onAcceptOffer, onDeclineOffer, onDelete,
 }: {
   app: Application;
   onDragStart: () => void;
+  onMarkNoResponse: () => void;
   onMarkRejected: () => void;
   onFollowUp: () => void;
+  onAcceptOffer: () => void;
+  onDeclineOffer: () => void;
+  onDelete: () => void;
 }) {
   const isStale = app.daysSinceApply > 7;
+
+  function pill(
+    label: string,
+    color: string,
+    bg: string,
+    border: string,
+    onClick: () => void,
+  ) {
+    return (
+      <button
+        key={label}
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        style={{
+          fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+          background: bg, color, border: `1px solid ${border}`,
+          cursor: 'pointer', fontFamily: 'Poppins, sans-serif',
+          transition: 'opacity 120ms', lineHeight: 1.4,
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  function renderActions() {
+    switch (app.status) {
+      case 'APPLIED':
+        return isStale ? pill('No Response', '#D97706', '#FEF3C7', '#FDE68A', onMarkNoResponse) : null;
+      case 'NO_RESPONSE':
+        return (
+          <>
+            {pill('Follow Up', '#16A34A', '#F0FDF4', '#BBF7D0', onFollowUp)}
+            {pill('Rejected', '#DC2626', '#FEF2F2', '#FECACA', onMarkRejected)}
+          </>
+        );
+      case 'PHONE_SCREEN':
+      case 'INTERVIEW':
+        return pill('Follow Up', '#16A34A', '#F0FDF4', '#BBF7D0', onFollowUp);
+      case 'OFFER':
+        return (
+          <>
+            {pill('Accept', '#16A34A', '#F0FDF4', '#BBF7D0', onAcceptOffer)}
+            {pill('Decline', '#DC2626', '#FEF2F2', '#FECACA', onDeclineOffer)}
+          </>
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
     <div
       draggable
       onDragStart={onDragStart}
-      className="p-2.5 rounded-lg cursor-grab active:cursor-grabbing select-none"
       style={{
-        background: 'rgba(9,9,11,0.70)',
-        boxShadow: '0 1px 4px 0 rgba(0,0,0,0.16)',
+        background: '#FFFFFF',
+        border: '1px solid #E2E8F0',
+        borderRadius: 14,
+        padding: '10px 12px',
+        cursor: 'grab',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+        transition: 'box-shadow 120ms, border-color 120ms',
+        userSelect: 'none',
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)';
+        (e.currentTarget as HTMLDivElement).style.borderColor = '#CBD5E1';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
+        (e.currentTarget as HTMLDivElement).style.borderColor = '#E2E8F0';
       }}
     >
-      <p className="text-xs font-semibold truncate" style={{ color: '#FAFAFA' }}>
-        {app.company}
-      </p>
-      <p className="text-[11px] truncate mt-0.5" style={{ color: '#71717A' }}>
-        {app.role}
-      </p>
-      <p
-        className="text-[10px] mt-1.5"
-        style={{ color: isStale ? '#F59E0B' : '#52525B' }}
-      >
-        {app.daysSinceApply}d
-      </p>
-      <div className="flex gap-1.5 mt-2">
+      {/* Company avatar + name */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+          background: 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 700, color: '#FFFFFF',
+        }}>
+          {app.company ? app.company.charAt(0).toUpperCase() : '?'}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+            {app.company}
+          </p>
+          <p style={{ fontSize: 11, fontWeight: 300, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+            {app.role}
+          </p>
+        </div>
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onFollowUp();
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="Delete"
+          style={{
+            width: 22, height: 22, borderRadius: 6, border: 'none',
+            background: 'transparent', cursor: 'pointer', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#CBD5E1', padding: 0,
+            transition: 'color 120ms, background 120ms',
           }}
-          className="text-[10px] px-1.5 py-0.5 rounded transition-colors"
-          style={{ background: '#27272A', color: '#71717A', boxShadow: '0 1px 4px 0 rgba(0,0,0,0.20)' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#A1A1AA'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#71717A'; }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = '#DC2626';
+            (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1';
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          }}
         >
-          Follow Up
+          <Trash2 size={11} />
         </button>
-        {app.status !== 'REJECTED' && app.status !== 'OFFER' && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onMarkRejected();
-            }}
-            className="text-[10px] px-1.5 py-0.5 rounded transition-colors"
-            style={{
-              background: 'rgba(69,10,10,0.4)',
-              color: '#F87171',
-              boxShadow: '0 0 0 1px rgba(127,29,29,0.35)',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(69,10,10,0.7)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(69,10,10,0.4)';
-            }}
-          >
-            Rejected
-          </button>
-        )}
+      </div>
+
+      {/* Age */}
+      <div style={{ marginTop: 8, marginBottom: 8 }}>
+        <span style={{
+          fontSize: 10, fontWeight: 500,
+          color: isStale ? '#D97706' : '#94A3B8',
+        }}>
+          {app.daysSinceApply === 0 ? 'just now' : `${app.daysSinceApply}d ago`}{isStale ? ' · follow up' : ''}
+        </span>
+      </div>
+
+      {/* Action pills */}
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        {renderActions()}
       </div>
     </div>
   );

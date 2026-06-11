@@ -3,6 +3,8 @@ const JobAnalysis = require('../models/JobAnalysis');
 const Application = require('../models/Application');
 const RejectionPattern = require('../models/RejectionPattern');
 const WeeklyBriefing = require('../models/WeeklyBriefing');
+const AgentDraft = require('../models/AgentDraft');
+const AgentRun = require('../models/AgentRun');
 
 async function getOrCreateProfile(userId) {
   let profile = await CareerProfile.findById(userId);
@@ -35,8 +37,13 @@ async function getJobAnalysis(jobId) {
   return JobAnalysis.findById(jobId);
 }
 
-async function getJobAnalysesForUser(userId) {
-  return JobAnalysis.find({ userId }).sort({ analyzedAt: -1 });
+async function getJobAnalysesForUser(userId, batchId = null) {
+  // Allow batchId-only lookup when userId is null (handles session store failures)
+  if (batchId && !userId) {
+    return JobAnalysis.find({ batchId }).sort({ analyzedAt: -1 });
+  }
+  const query = batchId ? { userId, batchId } : { userId };
+  return JobAnalysis.find(query).sort({ analyzedAt: -1 });
 }
 
 async function saveApplication(doc) {
@@ -45,6 +52,10 @@ async function saveApplication(doc) {
 
 async function updateApplication(appId, updates) {
   return Application.findByIdAndUpdate(appId, { $set: updates }, { new: true });
+}
+
+async function deleteApplication(appId, userId) {
+  return Application.findOneAndDelete({ _id: appId, userId });
 }
 
 async function getApplicationsForUser(userId) {
@@ -75,6 +86,17 @@ async function saveWeeklyBriefing(doc) {
   return WeeklyBriefing.findByIdAndUpdate(doc._id, doc, { upsert: true, new: true });
 }
 
+async function findApplicationByCompany(userId, companyName) {
+  const apps = await Application.find({ userId });
+  const needle = companyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    apps.find((a) => {
+      const hay = a.company.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return hay.includes(needle) || needle.includes(hay);
+    }) || null
+  );
+}
+
 async function applyMongoUpdate(mongoUpdate) {
   if (!mongoUpdate || !mongoUpdate.collection) return;
   const models = {
@@ -94,6 +116,36 @@ async function applyMongoUpdate(mongoUpdate) {
   }
 }
 
+// ─── Agent Drafts ─────────────────────────────────────────────────────────────
+
+async function saveFollowUpDraft(userId, applicationId, company, role, subject, body, runId) {
+  const crypto = require('crypto');
+  const id = `draft_${crypto.randomBytes(6).toString('hex')}`;
+  return AgentDraft.create({ _id: id, userId, applicationId, company, role, subject, body, runId, status: 'pending' });
+}
+
+async function getAgentDrafts(userId, status = 'pending') {
+  return AgentDraft.find({ userId, status }).sort({ createdAt: -1 });
+}
+
+async function updateDraftStatus(draftId, status) {
+  return AgentDraft.findByIdAndUpdate(draftId, { $set: { status } }, { new: true });
+}
+
+async function clearOldFollowUpDrafts(userId) {
+  return AgentDraft.updateMany({ userId, status: 'pending' }, { $set: { status: 'dismissed' } });
+}
+
+// ─── Agent Runs ───────────────────────────────────────────────────────────────
+
+async function saveAgentRun(doc) {
+  return AgentRun.findByIdAndUpdate(doc._id, doc, { upsert: true, new: true });
+}
+
+async function getLatestAgentRun(userId) {
+  return AgentRun.findOne({ userId }).sort({ startedAt: -1 });
+}
+
 module.exports = {
   getOrCreateProfile,
   updateProfile,
@@ -104,10 +156,18 @@ module.exports = {
   saveApplication,
   updateApplication,
   getApplicationsForUser,
+  findApplicationByCompany,
+  deleteApplication,
   getStaleApplications,
   getRejectionPattern,
   saveRejectionPattern,
   getLatestWeeklyBriefing,
   saveWeeklyBriefing,
   applyMongoUpdate,
+  saveFollowUpDraft,
+  getAgentDrafts,
+  updateDraftStatus,
+  clearOldFollowUpDrafts,
+  saveAgentRun,
+  getLatestAgentRun,
 };

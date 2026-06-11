@@ -20,6 +20,7 @@ const jobAnalysisSchema = new mongoose.Schema({
   coverLetterGenerated: { type: Boolean, default: false },
   coverLetterText: { type: String, default: '' },
   coverLetterStrategy: { type: String, default: '' },
+  batchId: { type: String, default: '' },
 }, { _id: false, versionKey: false });
 
 jobAnalysisSchema.set('id', false);

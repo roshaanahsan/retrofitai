@@ -1,16 +1,53 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, CheckCircle, AlertCircle, XCircle, Sparkles, Clock, ArrowRight } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, XCircle, Sparkles, Clock, ArrowRight, TrendingUp, AlertTriangle, Trash2 } from 'lucide-react';
 import { analyzeJob, generateCoverLetter, createApplication } from '@/lib/api';
-import { cn, getVerdictStyle } from '@/lib/utils';
+import { getVerdictStyle } from '@/lib/utils';
 import type { JobAnalysis, Application } from '@/types';
 
 interface AnalyzeViewProps {
   applications: Application[];
   setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
   addMessage: (role: 'user' | 'agent', text: string) => void;
+  openChat: () => void;
 }
 
-// Count-up with cubic ease-out
+function AnalyzeTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const [focused, setFocused] = useState(false);
+  const { onFocus, onBlur, ...rest } = props;
+  return (
+    <div style={{
+      borderRadius: 18,
+      border: `1px solid ${focused ? '#16A34A' : '#E2E8F0'}`,
+      overflow: 'hidden',
+      transition: 'border-color 150ms',
+      background: '#F8FAFC',
+    }}>
+      <textarea
+        {...rest}
+        style={{
+          width: '100%',
+          height: 200,
+          resize: 'none',
+          border: 'none',
+          borderRadius: 0,
+          padding: '14px 16px',
+          fontSize: 14,
+          fontFamily: 'Poppins, sans-serif',
+          fontWeight: 400,
+          background: 'transparent',
+          color: '#0F172A',
+          outline: 'none',
+          lineHeight: 1.7,
+          display: 'block',
+          boxSizing: 'border-box',
+        }}
+        onFocus={(e) => { setFocused(true); onFocus?.(e); }}
+        onBlur={(e) => { setFocused(false); onBlur?.(e); }}
+      />
+    </div>
+  );
+}
+
 function useCountUp(target: number, duration = 700) {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -28,29 +65,69 @@ function useCountUp(target: number, duration = 700) {
   return count;
 }
 
-export default function AnalyzeView({ setApplications, addMessage }: AnalyzeViewProps) {
-  const [jdText, setJdText] = useState('');
-  const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState<JobAnalysis | null>(null);
-  const [coverLetter, setCoverLetter] = useState<{ text: string; strategy: string } | null>(null);
+const CARD: React.CSSProperties = {
+  background: '#FFFFFF',
+  border: '1px solid #E2E8F0',
+  borderRadius: 18,
+  boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+};
+
+const GRAD_CARD: React.CSSProperties = {
+  ...CARD,
+  background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 28%, #FFFFFF 72%, #E8ECF3)',
+};
+
+export default function AnalyzeView({ setApplications, addMessage, openChat }: AnalyzeViewProps) {
+  const [jdText, setJdText]             = useState('');
+  const [analyzing, setAnalyzing]       = useState(false);
+  const [hasAnalyzed, setHasAnalyzed]   = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [result, setResult]             = useState<JobAnalysis | null>(null);
+  const [coverLetter, setCoverLetter]   = useState<{ text: string; strategy: string } | null>(null);
   const [generatingCL, setGeneratingCL] = useState(false);
+  const [clError, setClError]           = useState<string | null>(null);
   const [addedToPipeline, setAddedToPipeline] = useState(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const scoreDisplay = useCountUp(result?.matchScore ?? 0, 800);
 
-  async function handleAnalyze() {
-    if (!jdText.trim() || analyzing) return;
-    setAnalyzing(true);
+  function handleClear() {
+    setJdText('');
+    setHasAnalyzed(false);
     setResult(null);
+    setCoverLetter(null);
+    setAnalyzeError(null);
+    setClError(null);
+    setPipelineError(null);
+    setAddedToPipeline(false);
+  }
+
+  async function handleAnalyze() {
+    if (jdText.length < 150 || analyzing) return;
+    openChat();
+    setAnalyzing(true);
+    setHasAnalyzed(true);
+    setResult(null);
+    setAnalyzeError(null);
+    setClError(null);
+    setPipelineError(null);
     setCoverLetter(null);
     setAddedToPipeline(false);
     try {
       const { data } = await analyzeJob(jdText.trim());
+      if (!data?.jobAnalysis) throw new Error('No analysis returned');
       setResult(data.jobAnalysis);
       addMessage('agent', data.reply || 'Job analysis complete.');
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Analysis failed';
+      const isTimeout = msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('network');
+      setAnalyzeError(
+        isTimeout
+          ? 'Analysis is taking longer than expected. The AI may be busy — please try again.'
+          : 'Analysis failed. Check your connection and try again.'
+      );
       addMessage('agent', 'Job analysis failed. Please try again.');
     } finally {
       setAnalyzing(false);
@@ -60,12 +137,20 @@ export default function AnalyzeView({ setApplications, addMessage }: AnalyzeView
   async function handleGenerateCL() {
     if (!result || generatingCL) return;
     setGeneratingCL(true);
+    setClError(null);
     try {
       const { data } = await generateCoverLetter(result._id);
-      setCoverLetter({ text: data.coverLetterText, strategy: data.coverLetterStrategy });
+      if (!data?.coverLetterText) throw new Error('No cover letter returned');
+      setCoverLetter({ text: data.coverLetterText, strategy: data.coverLetterStrategy ?? '' });
       addMessage('agent', data.reply || 'Cover letter generated.');
-    } catch {
-      addMessage('agent', 'Cover letter generation failed. Please try again.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      const isTimeout = msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('network');
+      setClError(
+        isTimeout
+          ? 'Request timed out — the AI may be busy. Please try again.'
+          : 'Cover letter generation failed. Please try again.'
+      );
     } finally {
       setGeneratingCL(false);
     }
@@ -73,536 +158,556 @@ export default function AnalyzeView({ setApplications, addMessage }: AnalyzeView
 
   async function handleAddToPipeline() {
     if (!result || addedToPipeline) return;
+    setPipelineError(null);
     try {
       const { data } = await createApplication({
-        company: result.company,
-        role: result.jobTitle,
+        company: result.company || 'Unknown Company',
+        role: result.jobTitle || 'Unknown Role',
         jobAnalysisId: result._id,
       });
       setApplications((prev: Application[]) => [data, ...prev]);
       setAddedToPipeline(true);
       addMessage('agent', `Added ${result.company} — ${result.jobTitle} to your pipeline.`);
     } catch {
-      addMessage('agent', 'Failed to add to pipeline.');
+      setPipelineError('Failed to add to pipeline. Please try again.');
     }
   }
 
   const scoreColor =
     result
-      ? result.matchScore >= 70
-        ? '#10B981'
-        : result.matchScore >= 45
-        ? '#F59E0B'
-        : '#EF4444'
-      : '#00e5ff';
+      ? result.matchScore >= 70 ? '#16A34A'
+        : result.matchScore >= 45 ? '#D97706'
+        : '#DC2626'
+      : '#16A34A';
+
+  const ready = jdText.length >= 150 && !analyzing;
 
   return (
-    <div className="p-6 space-y-5 max-w-2xl">
+    <div className="p-8 space-y-5 max-w-2xl">
 
       {/* Page header */}
-      <div>
-        <h1
-          className="text-xl font-semibold tracking-tight"
-          style={{ color: '#FAFAFA', letterSpacing: '-0.02em' }}
-        >
+      <div className="mb-6">
+        <h1 style={{ fontSize: 32, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1 }}>
           Job Analyzer
         </h1>
-        <p className="text-xs mt-1" style={{ color: '#52525B' }}>
-          Paste any job description — get a match score, gap analysis, and tailored cover letter in seconds
+        <p style={{ fontSize: 13, fontWeight: 300, color: '#94A3B8', marginTop: 6 }}>
+          Paste any job description — get a match score, gap analysis, and tailored cover letter in seconds.
         </p>
       </div>
 
-      {/* Input area */}
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{
-          background: 'rgba(24,24,27,0.70)',
-          backdropFilter: 'blur(12px)',
-          boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-        }}
-      >
-        <div className="px-4 pt-4">
-          <textarea
+      {/* Input card */}
+      <div style={CARD}>
+        <div style={{ padding: '16px 16px 0' }}>
+          <AnalyzeTextarea
             value={jdText}
             onChange={(e) => setJdText(e.target.value)}
             placeholder="Paste any job description here..."
-            rows={8}
-            className="w-full rounded-md px-4 py-3 text-xs resize-none"
-            style={{
-              background: 'rgba(9,9,11,0.80)',
-              color: '#A1A1AA',
-              outline: 'none',
-              lineHeight: 1.7,
-              boxShadow: '0 2px 12px 0 rgba(0,0,0,0.30)',
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.45), 0 2px 12px 0 rgba(0,0,0,0.30)';
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 12px 0 rgba(0,0,0,0.30)';
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAnalyze();
-            }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAnalyze(); }}
           />
         </div>
-        <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ boxShadow: '0 -1px 0 0 rgba(255,255,255,0.04)' }}
-        >
-          <span className="text-[10px]" style={{ color: '#3F3F46' }}>
-            {jdText.length > 0 ? `${jdText.length} chars` : '⌘↵ to analyze'}
+
+        <div style={{ padding: '6px 16px 2px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 400,
+            color: jdText.length >= 150 ? '#16A34A' : '#94A3B8',
+          }}>
+            {jdText.length > 0 ? `${jdText.length} chars` : 'Minimum 150 characters to analyze'}
           </span>
+          {jdText.length >= 150 && (
+            <span style={{ fontSize: 11, color: '#16A34A', fontWeight: 500 }}>⌘/Ctrl + ↵ to analyze</span>
+          )}
+        </div>
+
+        <div style={{ padding: '8px 16px 16px' }}>
           <button
             onClick={handleAnalyze}
-            disabled={!jdText.trim() || analyzing}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-xs font-medium transition-colors',
-              jdText.trim() && !analyzing
-                ? 'bg-indigo-500 hover:bg-indigo-600 text-white'
-                : 'cursor-not-allowed'
-            )}
-            style={
-              !jdText.trim() || analyzing
-                ? { background: '#27272A', color: '#3F3F46' }
-                : undefined
-            }
+            disabled={!ready}
+            style={{
+              width: '100%',
+              height: 48,
+              borderRadius: 18,
+              fontSize: 14,
+              fontWeight: 600,
+              fontFamily: 'Poppins, sans-serif',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              border: 'none',
+              cursor: ready ? 'pointer' : 'not-allowed',
+              transition: 'background 150ms',
+              background: ready
+                ? 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)'
+                : '#F1F5F9',
+              color: ready ? '#FFFFFF' : '#94A3B8',
+            }}
+            onMouseEnter={(e) => { if (ready) (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #15803D 0%, #166534 100%)'; }}
+            onMouseLeave={(e) => { if (ready) (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)'; }}
           >
-            {analyzing ? (
-              <>
-                <Loader2 size={12} className="animate-spin" />
-                Analyzing...
-              </>
-            ) : (
-              <>
-                <Sparkles size={12} />
-                Analyze This Job
-              </>
-            )}
+            {analyzing
+              ? <><Loader2 size={15} className="animate-spin" /> Analyzing…</>
+              : <><Sparkles size={15} /> Analyze This Job</>}
           </button>
         </div>
       </div>
 
-      {/* Empty placeholder — only shows before first analysis */}
-      {!result && (
-        <div className="relative">
-          {/* Ghost preview cards */}
-          <div className="grid grid-cols-3 gap-3 pointer-events-none select-none" style={{ opacity: 0.28, filter: 'blur(2px)' }}>
-            {/* Match Score ghost */}
-            <div
-              className="rounded-xl p-5 flex flex-col gap-3"
-              style={{ background: 'rgba(24,24,27,0.70)', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)' }}
-            >
-              <p className="text-[10px] uppercase tracking-widest font-semibold" style={{ color: '#52525B' }}>Match Score</p>
-              <p className="text-5xl font-bold tabular-nums" style={{ color: '#FAFAFA', letterSpacing: '-0.04em' }}>78</p>
-              <div className="h-2 rounded-full" style={{ background: '#27272A' }}>
-                <div className="h-full w-3/4 rounded-full" style={{ background: 'linear-gradient(to right, #10B98188, #10B981)' }} />
+      {/* Ghost preview — mirrors actual result card, shown until Analyze is clicked */}
+      {!hasAnalyzed && !jdText.trim() && (
+        <div style={{ position: 'relative' }}>
+          <div className="pointer-events-none select-none" style={{ opacity: 0.28, filter: 'blur(3px)', ...CARD, overflow: 'hidden' }}>
+            {/* Ghost: job header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0', background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 60%)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 12, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 14, fontWeight: 700, color: '#FFFFFF',
+                }}>S</div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', lineHeight: 1.3 }}>
+                    Senior Software Engineer <span style={{ color: '#94A3B8', fontWeight: 400 }}>· Stripe</span>
+                  </p>
+                  <span style={{ fontSize: 11, color: '#16A34A', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <Clock size={9} /> Posted 3d ago — apply immediately
+                  </span>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                {['React', 'TypeScript', 'Node.js'].map(s => (
-                  <div key={s} className="flex items-center gap-2 text-xs" style={{ color: '#A1A1AA' }}>
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#10B981' }} />
-                    {s}
-                  </div>
+            </div>
+            {/* Ghost: score hero */}
+            <div style={{ padding: '20px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 24 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                <p style={{ fontSize: 64, fontWeight: 700, color: '#16A34A', letterSpacing: '-0.05em', lineHeight: 1 }}>78</p>
+                <p style={{ fontSize: 11, color: '#CBD5E1', fontWeight: 400, marginTop: 2 }}>/ 100</p>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8' }}>Match Score</p>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#16A34A' }}>Strong match</p>
+                </div>
+                <div style={{ height: 8, borderRadius: 999, background: '#F1F5F9', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: '78%', borderRadius: 999, background: 'linear-gradient(to right, #16A34A66, #16A34A)' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                  <span style={{ fontSize: 10, color: '#CBD5E1' }}>0</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, color: '#16A34A' }}>Good to go</span>
+                  <span style={{ fontSize: 10, color: '#CBD5E1' }}>100</span>
+                </div>
+              </div>
+            </div>
+            {/* Ghost: strengths + gaps */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #E2E8F0' }}>
+              <div style={{ padding: '16px 20px', borderRight: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#16A34A' }}>Strengths</p>
+                  <span style={{ fontSize: 10, fontWeight: 600, background: '#DCFCE7', color: '#16A34A', padding: '1px 6px', borderRadius: 4 }}>4</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {['React', 'TypeScript', 'Node.js', 'REST APIs'].map(s => (
+                    <span key={s} style={{ display: 'inline-flex', alignItems: 'center', height: 28, padding: '0 10px', borderRadius: 999, background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', fontSize: 11, fontWeight: 500 }}>{s}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#D97706' }}>Gaps</p>
+                  <span style={{ fontSize: 10, fontWeight: 600, background: '#FEF3C7', color: '#D97706', padding: '1px 6px', borderRadius: 4 }}>2</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {['AWS', 'Kubernetes'].map(g => (
+                    <span key={g} style={{ display: 'inline-flex', alignItems: 'center', height: 28, padding: '0 10px', borderRadius: 999, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', fontSize: 11, fontWeight: 500 }}>{g}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* Ghost: ATS keywords */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #E2E8F0' }}>
+              <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8', marginBottom: 10 }}>Missing ATS Keywords</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {['Terraform', 'CI/CD', 'Microservices', 'gRPC'].map(kw => (
+                  <span key={kw} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>{kw}</span>
                 ))}
               </div>
             </div>
-
-            {/* Gap Analysis ghost */}
-            <div
-              className="rounded-xl p-5 flex flex-col gap-3"
-              style={{ background: 'rgba(24,24,27,0.70)', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)' }}
-            >
-              <p className="text-[10px] uppercase tracking-widest font-semibold" style={{ color: '#52525B' }}>Gap Analysis</p>
-              <div className="space-y-2">
-                {['AWS Certification', 'Kubernetes', 'Team Leadership', 'ML Experience'].map(g => (
-                  <div key={g} className="flex items-center gap-2 text-xs" style={{ color: '#A1A1AA' }}>
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#F59E0B' }} />
-                    {g}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-auto pt-3" style={{ boxShadow: '0 -1px 0 0 rgba(255,255,255,0.05)' }}>
-                <span className="text-xs px-2 py-1 rounded-md" style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B' }}>Apply with edits</span>
+            {/* Ghost: verdict */}
+            <div style={{ padding: '16px 20px', background: '#F0FDF4', borderTop: '1px solid #BBF7D0', borderBottom: '1px solid #BBF7D0', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <CheckCircle size={22} style={{ color: '#16A34A', flexShrink: 0 }} />
+              <div>
+                <p style={{ fontSize: 22, fontWeight: 700, color: '#16A34A', letterSpacing: '-0.02em', lineHeight: 1 }}>Apply Now</p>
+                <p style={{ fontSize: 12, color: '#16A34A', opacity: 0.7, marginTop: 3, fontWeight: 300 }}>Your profile aligns well with this role — apply without delay.</p>
               </div>
             </div>
-
-            {/* Cover Letter ghost */}
-            <div
-              className="rounded-xl p-5 flex flex-col gap-3"
-              style={{ background: 'rgba(24,24,27,0.70)', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)' }}
-            >
-              <p className="text-[10px] uppercase tracking-widest font-semibold" style={{ color: '#52525B' }}>Cover Letter</p>
-              <div className="space-y-2">
-                {[80, 65, 90, 55, 75, 45, 85].map((w, i) => (
-                  <div key={i} className="h-2 rounded-full" style={{ background: '#27272A', width: `${w}%` }} />
-                ))}
+            {/* Ghost: action buttons */}
+            <div style={{ padding: '14px 20px 14px', display: 'flex', gap: 10 }}>
+              <div style={{ flex: 1, height: 44, borderRadius: 18, background: 'transparent', border: '1px solid #BBF7D0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Sparkles size={12} style={{ color: '#16A34A' }} />
+                <span style={{ fontSize: 13, fontWeight: 500, color: '#16A34A' }}>Generate Cover Letter</span>
               </div>
-              <div className="mt-auto pt-3" style={{ boxShadow: '0 -1px 0 0 rgba(255,255,255,0.05)' }}>
-                <span className="text-xs" style={{ color: '#52525B' }}>Tailored to this role</span>
+              <div style={{ flex: 1, height: 44, borderRadius: 18, background: 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <ArrowRight size={12} style={{ color: '#FFFFFF' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF' }}>Add to Pipeline</span>
               </div>
             </div>
           </div>
-
-          {/* Overlay text */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <p
-              className="text-sm font-medium text-center px-6 py-3 rounded-xl"
-              style={{
-                color: '#A1A1AA',
-                background: 'rgba(9,9,11,0.65)',
-                backdropFilter: 'blur(8px)',
-                boxShadow: '0 0 0 1px rgba(255,255,255,0.06)',
-              }}
-            >
+          {/* Overlay label */}
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <p style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: '#64748B',
+              background: 'rgba(255,255,255,0.92)',
+              backdropFilter: 'blur(8px)',
+              padding: '10px 20px',
+              borderRadius: 18,
+              border: '1px solid #E2E8F0',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+            }}>
               Paste a job description above to see your analysis
             </p>
           </div>
         </div>
       )}
 
-      {/* Analysis Results */}
+      {/* Loading skeleton */}
+      {analyzing && (
+        <div style={{ ...CARD, padding: '24px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: '#F1F5F9' }} className="animate-pulse" />
+            <div style={{ flex: 1 }}>
+              <div style={{ height: 12, borderRadius: 6, background: '#F1F5F9', width: '55%', marginBottom: 6 }} className="animate-pulse" />
+              <div style={{ height: 10, borderRadius: 6, background: '#F1F5F9', width: '30%' }} className="animate-pulse" />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
+            <div style={{ width: 80, height: 80, borderRadius: 12, background: '#F1F5F9' }} className="animate-pulse" />
+            <div style={{ flex: 1 }}>
+              <div style={{ height: 8, borderRadius: 6, background: '#F1F5F9', width: '100%', marginBottom: 8 }} className="animate-pulse" />
+              <div style={{ height: 8, borderRadius: 6, background: '#F1F5F9', width: '80%', marginBottom: 8 }} className="animate-pulse" />
+              <div style={{ height: 8, borderRadius: 6, background: '#F1F5F9', width: '60%' }} className="animate-pulse" />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+            {[60, 80, 50, 70].map((w, i) => (
+              <div key={i} style={{ height: 28, borderRadius: 999, background: '#F1F5F9', width: w }} className="animate-pulse" />
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: '#94A3B8', textAlign: 'center', marginTop: 8 }}>
+            AI is reading the job description…
+          </p>
+        </div>
+      )}
+
+      {/* Inline error */}
+      {analyzeError && !analyzing && !result && (
+        <div style={{
+          ...CARD,
+          padding: '16px 20px',
+          display: 'flex', alignItems: 'flex-start', gap: 12,
+          background: '#FEF2F2', border: '1px solid #FECACA',
+        }}>
+          <AlertTriangle size={16} style={{ color: '#DC2626', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>Analysis failed</p>
+            <p style={{ fontSize: 12, fontWeight: 300, color: '#B91C1C', marginTop: 2 }}>{analyzeError}</p>
+          </div>
+          <button
+            onClick={() => { setAnalyzeError(null); setHasAnalyzed(false); }}
+            style={{ fontSize: 11, fontWeight: 500, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Results */}
       {result && (
-        <div
-          ref={resultRef}
-          className="rounded-xl overflow-hidden"
-          style={{
-            background: 'rgba(24,24,27,0.70)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-          }}
-        >
+        <div ref={resultRef} style={{ ...CARD, overflow: 'hidden' }}>
+
           {/* Job header */}
-          <div className="px-5 py-4" style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}>
-            <div className="flex items-start gap-3">
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0', background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 60%)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
               {result.company && (
-                <div
-                  className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 text-xs font-bold"
-                  style={{ background: '#27272A', color: '#00e5ff', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.30)' }}
-                >
+                <div style={{
+                  width: 36, height: 36, borderRadius: 12, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 14, fontWeight: 700, color: '#FFFFFF',
+                }}>
                   {result.company.charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold leading-tight" style={{ color: '#FAFAFA' }}>
-                  {result.jobTitle}
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', lineHeight: 1.3 }}>
+                  {result.jobTitle || 'Job Analysis'}
                   {result.company && (
-                    <span style={{ color: '#52525B', fontWeight: 400 }}> · {result.company}</span>
+                    <span style={{ color: '#94A3B8', fontWeight: 400 }}> · {result.company}</span>
                   )}
                 </p>
-                <div className="flex items-center gap-3 mt-1">
-                  {result.postingAge !== null && (
-                    <span
-                      className="flex items-center gap-1 text-[10px]"
-                      style={{
-                        color:
-                          result.postingAge <= 7
-                            ? '#10B981'
-                            : result.postingAge <= 21
-                            ? '#F59E0B'
-                            : '#EF4444',
-                      }}
-                    >
-                      <Clock size={9} />
-                      Posted {result.postingAge}d ago
-                      {result.postingAge <= 7
-                        ? ' — apply immediately'
-                        : result.postingAge > 30
-                        ? ' — likely filled'
-                        : ''}
-                    </span>
-                  )}
-                </div>
+                {result.postingAge !== null && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4,
+                    fontSize: 11, fontWeight: 400,
+                    color: result.postingAge <= 7 ? '#16A34A' : result.postingAge <= 21 ? '#D97706' : '#DC2626',
+                  }}>
+                    <Clock size={9} />
+                    Posted {result.postingAge}d ago
+                    {result.postingAge <= 7 ? ' — apply immediately' : result.postingAge > 30 ? ' — likely filled' : ''}
+                  </span>
+                )}
               </div>
+              {/* Clear button — inside header row, no overlap with borders */}
+              <button
+                onClick={handleClear}
+                title="Clear analysis"
+                style={{
+                  width: 28, height: 28, borderRadius: 8,
+                  background: 'transparent', border: 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', color: '#CBD5E1', flexShrink: 0,
+                  minHeight: 'unset', transition: 'color 120ms, background 120ms',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = '#DC2626';
+                  (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1';
+                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
           </div>
 
-          {/* Score — the hero number */}
-          <div
-            className="px-5 py-5 flex items-center gap-5"
-            style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}
-          >
-            {/* Big score number */}
-            <div className="flex flex-col items-center justify-center shrink-0 relative">
-              <p
-                className="tabular-nums font-bold leading-none"
-                style={{ color: scoreColor, fontSize: 52, letterSpacing: '-0.05em' }}
-              >
+          {/* Score hero */}
+          <div style={{ padding: '20px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <p style={{ fontSize: 64, fontWeight: 700, color: scoreColor, letterSpacing: '-0.05em', lineHeight: 1 }}>
                 {scoreDisplay}
               </p>
-              <p className="text-[10px] mt-1 uppercase tracking-widest font-medium" style={{ color: '#3F3F46' }}>
-                / 100
-              </p>
+              <p style={{ fontSize: 11, color: '#CBD5E1', fontWeight: 400, marginTop: 2 }}>/ 100</p>
             </div>
-
-            {/* Score detail */}
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <p
-                  className="text-[10px] uppercase tracking-widest font-semibold"
-                  style={{ color: '#52525B' }}
-                >
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8' }}>
                   Match Score
                 </p>
-                <p
-                  className="text-[10px] font-medium"
-                  style={{
-                    color:
-                      result.matchScore >= 70
-                        ? '#10B981'
-                        : result.matchScore >= 45
-                        ? '#F59E0B'
-                        : '#EF4444',
-                  }}
-                >
-                  {result.matchScore >= 70
-                    ? 'Strong match'
-                    : result.matchScore >= 45
-                    ? 'Moderate match'
-                    : 'Weak match'}
+                <p style={{ fontSize: 11, fontWeight: 600, color: scoreColor }}>
+                  {result.matchScore >= 70 ? 'Strong match' : result.matchScore >= 45 ? 'Moderate match' : 'Weak match'}
                 </p>
               </div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ background: '#27272A' }}>
+              <div style={{ height: 8, borderRadius: 999, background: '#F1F5F9', overflow: 'hidden' }}>
                 <div
-                  className="h-full rounded-full score-bar-fill"
-                  style={{
-                    width: `${scoreDisplay}%`,
-                    background: `linear-gradient(to right, ${scoreColor}88, ${scoreColor})`,
-                  }}
+                  className="score-bar-fill"
+                  style={{ height: '100%', width: `${scoreDisplay}%`, borderRadius: 999, background: `linear-gradient(to right, ${scoreColor}66, ${scoreColor})` }}
                 />
               </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-[9px]" style={{ color: '#3F3F46' }}>0</span>
-                <span
-                  className="text-[9px] font-medium"
-                  style={{ color: scoreColor }}
-                >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                <span style={{ fontSize: 10, color: '#CBD5E1' }}>0</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: scoreColor }}>
                   {scoreDisplay >= 70 ? 'Good to go' : scoreDisplay >= 45 ? 'Needs work' : 'Not ready'}
                 </span>
-                <span className="text-[9px]" style={{ color: '#3F3F46' }}>100</span>
+                <span style={{ fontSize: 10, color: '#CBD5E1' }}>100</span>
               </div>
             </div>
           </div>
 
           {/* Strengths + Gaps */}
-          <div
-            className="grid grid-cols-2"
-            style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}
-          >
-            <div className="px-5 py-4" style={{ boxShadow: '1px 0 0 0 rgba(255,255,255,0.05)' }}>
-              <div className="flex items-center justify-between mb-3">
-                <p
-                  className="text-[10px] uppercase tracking-widest font-semibold"
-                  style={{ color: '#10B981' }}
-                >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #E2E8F0' }}>
+            {/* Strengths */}
+            <div style={{ padding: '16px 20px', borderRight: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#16A34A' }}>
                   Strengths
                 </p>
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded"
-                  style={{ background: 'rgba(16,185,129,0.1)', color: '#10B981' }}
-                >
-                  {result.strongMatches.length}
+                <span style={{ fontSize: 10, fontWeight: 600, background: '#DCFCE7', color: '#16A34A', padding: '1px 6px', borderRadius: 4 }}>
+                  {(result.strongMatches ?? []).length}
                 </span>
               </div>
-              <ul className="space-y-2">
-                {result.strongMatches.map((m) => (
-                  <li
-                    key={m}
-                    className="flex items-start gap-2 text-xs"
-                    style={{ color: '#A1A1AA' }}
-                  >
-                    <CheckCircle
-                      size={11}
-                      className="shrink-0 mt-0.5"
-                      style={{ color: '#10B981' }}
-                    />
-                    {m}
-                  </li>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {(result.strongMatches ?? []).map((m) => (
+                  <span key={m} style={{
+                    display: 'inline-flex', alignItems: 'center', height: 28,
+                    padding: '0 10px', borderRadius: 999,
+                    background: '#F0FDF4', color: '#16A34A',
+                    border: '1px solid #BBF7D0', fontSize: 11, fontWeight: 500,
+                  }}>{m}</span>
                 ))}
-                {result.strongMatches.length === 0 && (
-                  <li className="text-xs" style={{ color: '#3F3F46' }}>None found</li>
+                {(result.strongMatches ?? []).length === 0 && (
+                  <span style={{ fontSize: 12, color: '#CBD5E1' }}>None found</span>
                 )}
-              </ul>
+              </div>
             </div>
 
-            <div className="px-5 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <p
-                  className="text-[10px] uppercase tracking-widest font-semibold"
-                  style={{ color: '#F59E0B' }}
-                >
+            {/* Gaps */}
+            <div style={{ padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#D97706' }}>
                   Gaps
                 </p>
-                {result.gaps.length > 0 && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded"
-                    style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B' }}
-                  >
-                    {result.gaps.length}
+                {(result.gaps ?? []).length > 0 && (
+                  <span style={{ fontSize: 10, fontWeight: 600, background: '#FEF3C7', color: '#D97706', padding: '1px 6px', borderRadius: 4 }}>
+                    {(result.gaps ?? []).length}
                   </span>
                 )}
               </div>
-              <ul className="space-y-2">
-                {result.gaps.map((g) => (
-                  <li
-                    key={g}
-                    className="flex items-start gap-2 text-xs"
-                    style={{ color: '#A1A1AA' }}
-                  >
-                    <AlertCircle
-                      size={11}
-                      className="shrink-0 mt-0.5"
-                      style={{ color: '#F59E0B' }}
-                    />
-                    {g}
-                  </li>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {(result.gaps ?? []).map((g, i) => (
+                  <span key={`${g}-${i}`} style={{
+                    display: 'inline-flex', alignItems: 'center', height: 28,
+                    padding: '0 10px', borderRadius: 999,
+                    background: '#FEF2F2', color: '#DC2626',
+                    border: '1px solid #FECACA', fontSize: 11, fontWeight: 500,
+                  }}>{g}</span>
                 ))}
-                {result.gaps.length === 0 && (
-                  <li className="text-xs" style={{ color: '#3F3F46' }}>No major gaps</li>
+                {(result.gaps ?? []).length === 0 && (
+                  <span style={{ fontSize: 12, color: '#CBD5E1' }}>No major gaps</span>
                 )}
-              </ul>
+              </div>
             </div>
           </div>
 
           {/* Missing ATS keywords */}
-          {result.missingKeywords.length > 0 && (
-            <div className="px-5 py-4" style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}>
-              <p
-                className="text-[10px] uppercase tracking-widest font-semibold mb-3"
-                style={{ color: '#52525B' }}
-              >
+          {(result.missingKeywords ?? []).length > 0 && (
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #E2E8F0' }}>
+              <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8', marginBottom: 10 }}>
                 Missing ATS Keywords
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {result.missingKeywords.map((kw) => (
-                  <span
-                    key={kw}
-                    className="text-[11px] px-2 py-0.5 rounded-md"
-                    style={{
-                      background: '#27272A',
-                      color: '#71717A',
-                      boxShadow: '0 0 0 1px rgba(63,63,70,0.5)',
-                    }}
-                  >
-                    {kw}
-                  </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {(result.missingKeywords ?? []).map((kw, i) => (
+                  <span key={`${kw}-${i}`} style={{
+                    fontSize: 11, padding: '2px 8px', borderRadius: 6,
+                    background: '#F8FAFC', color: '#64748B',
+                    border: '1px solid #E2E8F0',
+                  }}>{kw}</span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Verdict — full-width banner */}
+          {/* Verdict */}
           <VerdictBanner verdict={result.verdict} />
 
           {/* Action buttons */}
-          <div className="px-5 py-4 flex gap-2">
+          <div style={{ padding: '14px 20px 0', display: 'flex', gap: 10 }}>
             <button
               onClick={handleGenerateCL}
               disabled={generatingCL}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors"
               style={{
-                background: 'transparent',
-                color: '#A1A1AA',
-                boxShadow: '0 0 0 1px rgba(63,63,70,0.5)',
+                flex: 1, height: 44, borderRadius: 18,
+                fontSize: 13, fontWeight: 500, fontFamily: 'Poppins, sans-serif',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                background: 'transparent', color: '#16A34A',
+                border: '1px solid #BBF7D0', cursor: generatingCL ? 'not-allowed' : 'pointer',
+                transition: 'background 120ms',
               }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = '#27272A';
-                (e.currentTarget as HTMLButtonElement).style.color = '#FAFAFA';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                (e.currentTarget as HTMLButtonElement).style.color = '#A1A1AA';
-              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#F0FDF4'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
             >
-              {generatingCL ? (
-                <><Loader2 size={11} className="animate-spin" /> Generating...</>
-              ) : (
-                <><Sparkles size={11} /> Generate Cover Letter</>
-              )}
+              {generatingCL
+                ? <><Loader2 size={12} className="animate-spin" /> Generating…</>
+                : <><Sparkles size={12} /> Generate Cover Letter</>}
             </button>
             <button
               onClick={handleAddToPipeline}
               disabled={addedToPipeline}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors',
-                addedToPipeline ? 'cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-600 text-white'
-              )}
-              style={
-                addedToPipeline
-                  ? { background: '#001a22', color: '#00e5ff', boxShadow: '0 0 0 1px rgba(99,102,241,0.2)' }
-                  : undefined
-              }
+              style={{
+                flex: 1, height: 44, borderRadius: 18,
+                fontSize: 13, fontWeight: 600, fontFamily: 'Poppins, sans-serif',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                border: 'none', cursor: addedToPipeline ? 'not-allowed' : 'pointer',
+                transition: 'background 120ms',
+                background: addedToPipeline
+                  ? '#F0FDF4'
+                  : 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+                color: addedToPipeline ? '#16A34A' : '#FFFFFF',
+              }}
+              onMouseEnter={(e) => { if (!addedToPipeline) (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #15803D 0%, #166534 100%)'; }}
+              onMouseLeave={(e) => { if (!addedToPipeline) (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)'; }}
             >
-              {addedToPipeline ? (
-                <><CheckCircle size={11} /> Added to Pipeline</>
-              ) : (
-                <><ArrowRight size={11} /> Add to Pipeline</>
-              )}
+              {addedToPipeline
+                ? <><CheckCircle size={12} /> Added to Pipeline</>
+                : <><ArrowRight size={12} /> Add to Pipeline</>}
             </button>
           </div>
+
+          {/* Inline errors for action buttons */}
+          {(clError || pipelineError) && (
+            <div style={{ padding: '8px 20px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {clError && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 12px', borderRadius: 10,
+                  background: '#FEF2F2', border: '1px solid #FECACA',
+                }}>
+                  <AlertTriangle size={12} style={{ color: '#DC2626', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#B91C1C', flex: 1 }}>{clError}</span>
+                  <button
+                    onClick={() => setClError(null)}
+                    style={{ fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                  >Dismiss</button>
+                </div>
+              )}
+              {pipelineError && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 12px', borderRadius: 10,
+                  background: '#FEF2F2', border: '1px solid #FECACA',
+                }}>
+                  <AlertTriangle size={12} style={{ color: '#DC2626', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#B91C1C', flex: 1 }}>{pipelineError}</span>
+                  <button
+                    onClick={() => setPipelineError(null)}
+                    style={{ fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                  >Dismiss</button>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Bottom padding when no errors */}
+          {!clError && !pipelineError && <div style={{ height: 14 }} />}
         </div>
       )}
 
       {/* Cover Letter */}
       {coverLetter && (
-        <div
-          className="rounded-xl overflow-hidden"
-          style={{
-            background: 'rgba(24,24,27,0.70)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)',
-          }}
-        >
-          <div
-            className="px-5 py-3 flex items-center justify-between"
-            style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}
-          >
-            <p
-              className="text-[10px] uppercase tracking-widest font-semibold"
-              style={{ color: '#52525B' }}
-            >
+        <div style={{ ...CARD, overflow: 'hidden' }}>
+          <div style={{
+            padding: '12px 20px', borderBottom: '1px solid #E2E8F0',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 60%)',
+          }}>
+            <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8' }}>
               Cover Letter
             </p>
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(coverLetter.text);
+              onClick={() => navigator.clipboard.writeText(coverLetter.text)}
+              style={{
+                fontSize: 11, fontWeight: 500, color: '#94A3B8',
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                transition: 'color 120ms',
               }}
-              className="text-[10px] transition-colors"
-              style={{ color: '#3F3F46' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#00e5ff'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#3F3F46'; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#16A34A'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#94A3B8'; }}
             >
               Copy
             </button>
           </div>
 
-          <div
-            className="px-5 py-4 text-sm leading-relaxed whitespace-pre-wrap text-xs"
-            style={{
-              background: 'rgba(9,9,11,0.60)',
-              color: '#A1A1AA',
-              lineHeight: 1.8,
-            }}
-          >
-            {coverLetter.text}
+          <div style={{ padding: '16px 20px', background: '#F8FAFC' }}>
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.8, whiteSpace: 'pre-wrap', fontWeight: 300 }}>
+              {coverLetter.text}
+            </p>
           </div>
 
           {coverLetter.strategy && (
-            <div
-              className="px-5 py-4"
-              style={{
-                background: 'rgba(30,27,75,0.60)',
-                boxShadow: '0 -1px 0 0 rgba(99,102,241,0.12)',
-              }}
-            >
-              <p
-                className="text-[10px] uppercase tracking-widest font-semibold mb-1.5 flex items-center gap-1.5"
-                style={{ color: '#00e5ff' }}
-              >
-                <Sparkles size={10} />
-                Strategy Note
+            <div style={{ padding: '14px 20px', background: '#F0FDF4', borderTop: '1px solid #BBF7D0' }}>
+              <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#16A34A', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <TrendingUp size={10} /> Strategy Note
               </p>
-              <p className="text-xs leading-relaxed" style={{ color: '#67e8f9' }}>
+              <p style={{ fontSize: 12, color: '#15803D', lineHeight: 1.6, fontWeight: 300 }}>
                 {coverLetter.strategy}
               </p>
             </div>
@@ -618,24 +723,18 @@ function VerdictBanner({ verdict }: { verdict: JobAnalysis['verdict'] }) {
 
   const config = {
     APPLY_NOW: {
-      bg: 'rgba(16,185,129,0.08)',
-      shadowColor: 'rgba(16,185,129,0.15)',
-      color: '#10B981',
-      icon: CheckCircle,
+      bg: '#F0FDF4', border: '#BBF7D0',
+      color: '#16A34A', icon: CheckCircle,
       desc: 'Your profile aligns well with this role — apply without delay.',
     },
     APPLY_WITH_EDITS: {
-      bg: 'rgba(245,158,11,0.08)',
-      shadowColor: 'rgba(245,158,11,0.15)',
-      color: '#F59E0B',
-      icon: AlertCircle,
+      bg: '#FFFBEB', border: '#FDE68A',
+      color: '#D97706', icon: AlertCircle,
       desc: 'Address the gaps above before applying to improve your odds.',
     },
     SKIP_THIS_ONE: {
-      bg: 'rgba(239,68,68,0.08)',
-      shadowColor: 'rgba(239,68,68,0.15)',
-      color: '#EF4444',
-      icon: XCircle,
+      bg: '#FEF2F2', border: '#FECACA',
+      color: '#DC2626', icon: XCircle,
       desc: 'Too many gaps — invest time in better-matched opportunities.',
     },
   } as const;
@@ -644,22 +743,21 @@ function VerdictBanner({ verdict }: { verdict: JobAnalysis['verdict'] }) {
   const Icon = cfg.icon;
 
   return (
-    <div
-      className="px-5 py-4 verdict-enter flex items-center gap-4"
-      style={{
-        background: cfg.bg,
-        boxShadow: `0 -1px 0 0 ${cfg.shadowColor}, 0 1px 0 0 ${cfg.shadowColor}`,
-      }}
+    <div style={{
+      padding: '16px 20px',
+      background: cfg.bg,
+      borderTop: `1px solid ${cfg.border}`,
+      borderBottom: `1px solid ${cfg.border}`,
+      display: 'flex', alignItems: 'center', gap: 14,
+    }}
+      className="verdict-enter"
     >
-      <Icon size={20} className="shrink-0" style={{ color: cfg.color }} />
+      <Icon size={22} style={{ color: cfg.color, flexShrink: 0 }} />
       <div>
-        <p
-          className="text-base font-bold leading-tight"
-          style={{ color: cfg.color, letterSpacing: '-0.01em' }}
-        >
+        <p style={{ fontSize: 22, fontWeight: 700, color: cfg.color, letterSpacing: '-0.02em', lineHeight: 1 }}>
           {label}
         </p>
-        <p className="text-[11px] mt-0.5" style={{ color: cfg.color, opacity: 0.6 }}>
+        <p style={{ fontSize: 12, color: cfg.color, opacity: 0.7, marginTop: 3, fontWeight: 300 }}>
           {cfg.desc}
         </p>
       </div>

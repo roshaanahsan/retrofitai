@@ -1,110 +1,88 @@
-import { LayoutDashboard, Search, Columns, Brain, FileText, type LucideIcon } from 'lucide-react';
-import { getMomentumColor, cn } from '@/lib/utils';
-import type { View, WeeklyBriefing } from '@/types';
+import { LayoutGrid, Search, Kanban, Lightbulb, BookOpen, type LucideIcon } from 'lucide-react';
+import type { View } from '@/types';
 
 interface SidebarProps {
   activeView: View;
   onNavigate: (view: View) => void;
   momentumScore: number | null;
-  briefing: WeeklyBriefing | null;
 }
 
-const NAV_SECTIONS = [
-  {
-    label: 'SEARCH',
-    items: [
-      { id: 'dashboard' as View, label: 'Dashboard', icon: LayoutDashboard },
-      { id: 'analyze' as View, label: 'Analyze Job', icon: Search },
-      { id: 'pipeline' as View, label: 'My Pipeline', icon: Columns },
-      { id: 'insights' as View, label: 'Insights', icon: Brain },
-    ],
-  },
-  {
-    label: 'REPORTS',
-    items: [
-      { id: 'briefing' as View, label: 'Weekly Brief', icon: FileText },
-    ],
-  },
+const NAV_ITEMS = [
+  { id: 'dashboard' as View, label: 'Dashboard',    icon: LayoutGrid },
+  { id: 'analyze'   as View, label: 'Analyze Job',  icon: Search     },
+  { id: 'pipeline'  as View, label: 'My Pipeline',  icon: Kanban     },
+  { id: 'insights'  as View, label: 'Insights',     icon: Lightbulb  },
+  { id: 'briefing'  as View, label: 'Weekly Brief', icon: BookOpen   },
 ];
 
-export default function Sidebar({ activeView, onNavigate, momentumScore, briefing }: SidebarProps) {
+export default function Sidebar({ activeView, onNavigate, momentumScore }: SidebarProps) {
   return (
-    <aside
-      className="w-[220px] shrink-0 flex flex-col z-10"
-      style={{ background: 'rgba(9,9,11,0.50)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '1px 0 12px 0 rgba(0,0,0,0.22)', position: 'relative', zIndex: 1 }}
-    >
-      {/* Brand mark */}
-      <div className="flex items-center gap-2.5 px-4 pt-4 pb-3" style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}>
-        <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
-          <path d="M11 2.5L18.79 7V15L11 19.5L3.21 15V7L11 2.5Z" fill="#003040" />
-          <path d="M11 6.5L15.33 9V14L11 16.5L6.67 14V9L11 6.5Z" fill="#00e5ff" fillOpacity="0.9" />
-        </svg>
-        <span style={{ fontSize: 14, fontWeight: 600, color: '#FAFAFA', letterSpacing: '-0.01em' }}>HireIQ</span>
-      </div>
+    <>
+      <aside
+        className="w-[220px] shrink-0 flex flex-col"
+        style={{ background: '#FFFFFF', borderRight: '1px solid #E2E8F0' }}
+      >
+        {/* Logo */}
+        <div
+          className="flex items-center gap-2.5 px-4 h-14 shrink-0"
+          style={{ borderBottom: '1px solid #E2E8F0' }}
+        >
+          <div
+            className="flex items-center justify-center shrink-0"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m11 17 2 2a1 1 0 1 0 3-3" />
+              <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" />
+              <path d="m21 3 1 11h-2" />
+              <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" />
+              <path d="M3 4h8" />
+            </svg>
+          </div>
+          <span style={{ fontSize: 19, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em', lineHeight: 1 }}>
+            Retrofit<span style={{ color: '#16A34A' }}>AI</span>
+          </span>
+        </div>
 
-      <nav className="flex-1 px-2 pt-3 pb-4 flex flex-col gap-4">
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.label}>
-            <p
-              className="px-3 mb-1 text-[11px] font-medium tracking-wide uppercase"
-              style={{ color: '#52525B' }}
+        <nav className="flex-1 px-3 pt-3 pb-3 flex flex-col gap-0.5 overflow-y-auto">
+          {NAV_ITEMS.map((item) => (
+            <NavItem
+              key={item.id}
+              item={item}
+              active={activeView === item.id}
+              onClick={() => onNavigate(item.id)}
+            />
+          ))}
+        </nav>
+
+        {momentumScore !== null && (
+          <div className="px-3 pb-4" style={{ borderTop: '1px solid #E2E8F0', paddingTop: '12px' }}>
+            <div
+              style={{
+                borderRadius: 18,
+                padding: '12px 14px',
+                background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 28%, #FFFFFF 72%, #E8ECF3)',
+                border: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
             >
-              {section.label}
-            </p>
-            <div className="flex flex-col gap-0.5">
-              {section.items.map((item) => (
-                <NavItem
-                  key={item.id}
-                  item={item}
-                  active={activeView === item.id}
-                  onClick={() => onNavigate(item.id)}
-                />
-              ))}
+              <span style={{ fontSize: 12, color: '#16A34A', fontWeight: 600, fontFamily: 'Poppins, sans-serif' }}>Momentum</span>
+              <span style={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'Poppins, sans-serif' }}>{momentumScore}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A', fontFamily: 'Poppins, sans-serif' }}>/100</span>
+              </span>
             </div>
           </div>
-        ))}
-      </nav>
-
-      {momentumScore !== null && (
-        <div className="px-3 pb-5 pt-2" style={{ boxShadow: '0 -1px 0 0 rgba(255,255,255,0.05)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] uppercase tracking-wide font-medium" style={{ color: '#52525B' }}>
-              Momentum
-            </span>
-            <span
-              className={cn('text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md', getMomentumColor(momentumScore))}
-            >
-              {momentumScore}
-            </span>
-          </div>
-          <div className="h-1 rounded-full overflow-hidden" style={{ background: '#27272A' }}>
-            <div
-              className={cn(
-                'h-full rounded-full transition-all duration-500',
-                momentumScore <= 40 ? 'bg-red-500' : momentumScore <= 70 ? 'bg-amber-500' : 'bg-emerald-500'
-              )}
-              style={{ width: `${momentumScore}%` }}
-            />
-          </div>
-          {briefing && (
-            <p
-              className={cn(
-                'text-[11px] mt-1.5',
-                briefing.momentumTrend === 'UP'
-                  ? 'text-emerald-500'
-                  : briefing.momentumTrend === 'DOWN'
-                  ? 'text-red-400'
-                  : ''
-              )}
-              style={briefing.momentumTrend === 'STABLE' ? { color: '#3F3F46' } : undefined}
-            >
-              {briefing.momentumTrend === 'UP' ? '▲' : briefing.momentumTrend === 'DOWN' ? '▼' : '—'}{' '}
-              from last week
-            </p>
-          )}
-        </div>
-      )}
-    </aside>
+        )}
+      </aside>
+    </>
   );
 }
 
@@ -121,27 +99,39 @@ function NavItem({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2.5 py-2 rounded-lg text-[13px] transition-colors duration-100 text-left"
+      className="w-full flex items-center gap-2.5 text-left transition-colors duration-100"
       style={{
-        paddingLeft: '12px',
-        paddingRight: '12px',
-        background: active ? '#001a22' : 'transparent',
-        color: active ? '#67e8f9' : '#71717A',
-        fontWeight: active ? 500 : 400,
+        paddingLeft: '10px',
+        paddingRight: '10px',
+        height: '38px',
+        borderRadius: '18px',
+        background: active
+          ? 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)'
+          : 'transparent',
+        color: active ? '#FFFFFF' : '#64748B',
+        fontWeight: active ? 600 : 400,
+        fontSize: '14px',
+        minHeight: 'unset',
       }}
       onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.background = '#27272A';
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = '#F8FAFC';
+          (e.currentTarget as HTMLButtonElement).style.color = '#0F172A';
+        }
       }}
       onMouseLeave={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          (e.currentTarget as HTMLButtonElement).style.color = '#64748B';
+        }
       }}
     >
       <Icon
-        size={14}
-        strokeWidth={active ? 2.5 : 1.75}
-        style={{ color: active ? '#00e5ff' : '#52525B', flexShrink: 0 }}
+        size={15}
+        strokeWidth={active ? 2.2 : 1.8}
+        style={{ color: active ? '#FFFFFF' : '#94A3B8', flexShrink: 0 }}
       />
-      {item.label}
+      <span style={{ flex: 1 }}>{item.label}</span>
     </button>
   );
 }

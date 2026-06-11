@@ -25,7 +25,7 @@ async function getClient() {
       },
     });
 
-    const client = new Client({ name: 'hireiq-agent', version: '1.0.0' });
+    const client = new Client({ name: 'retrofitai-agent', version: '1.0.0' });
     await client.connect(transport);
     mcpClient = client;
     console.log('MongoDB MCP server connected');
@@ -53,7 +53,7 @@ async function callTool(toolName, args) {
 async function find(collection, filter = {}, options = {}) {
   return callTool('find', {
     collection,
-    database: 'hireiq',
+    database: 'retrofitai',
     filter,
     limit: options.limit || 100,
     projection: options.projection || {},
@@ -68,7 +68,7 @@ async function findOne(collection, filter = {}) {
 async function insertOne(collection, document) {
   return callTool('insert-one', {
     collection,
-    database: 'hireiq',
+    database: 'retrofitai',
     document,
   });
 }
@@ -76,7 +76,7 @@ async function insertOne(collection, document) {
 async function updateOne(collection, filter, update) {
   return callTool('update-one', {
     collection,
-    database: 'hireiq',
+    database: 'retrofitai',
     filter,
     update,
     upsert: true,
@@ -86,7 +86,7 @@ async function updateOne(collection, filter, update) {
 async function count(collection, filter = {}) {
   return callTool('count', {
     collection,
-    database: 'hireiq',
+    database: 'retrofitai',
     query: filter,
   });
 }
@@ -94,7 +94,7 @@ async function count(collection, filter = {}) {
 async function aggregate(collection, pipeline) {
   return callTool('aggregate', {
     collection,
-    database: 'hireiq',
+    database: 'retrofitai',
     pipeline,
   });
 }

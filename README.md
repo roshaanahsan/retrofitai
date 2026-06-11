@@ -1,8 +1,8 @@
-# HireIQ
+# RetrofitAI
 
 **AI career agent that tells you why you're failing your job search — not just how to apply to more jobs.**
 
-HireIQ analyzes rejection patterns across your application history, detects where in the hiring funnel you're losing, and rebuilds your strategy in real time. It connects to your data through a conversational agent, not a form.
+RetrofitAI analyzes rejection patterns across your application history, detects where in the hiring funnel you're losing, and rebuilds your strategy in real time. It connects to your data through a conversational agent, not a form.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -10,7 +10,7 @@ HireIQ analyzes rejection patterns across your application history, detects wher
 
 ## The Problem
 
-Every AI job tool optimizes for volume — more applications, faster. None of them tell you why you keep getting rejected. Most job seekers are losing at the same stage repeatedly (no response, post-interview, final round) without ever knowing it. HireIQ is the first tool built specifically to detect that pattern and fix it.
+Every AI job tool optimizes for volume — more applications, faster. None of them tell you why you keep getting rejected. Most job seekers are losing at the same stage repeatedly (no response, post-interview, final round) without ever knowing it. RetrofitAI is the first tool built specifically to detect that pattern and fix it.
 
 ---
 

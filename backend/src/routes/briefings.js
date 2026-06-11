@@ -38,20 +38,41 @@ router.post('/generate', async (req, res) => {
     const responded = apps.filter((a) => !['APPLIED', 'NO_RESPONSE'].includes(a.status));
     const interviewed = apps.filter((a) => ['INTERVIEW', 'OFFER'].includes(a.status));
 
+    const responseRate = apps.length > 0 ? responded.length / apps.length : 0;
+    const interviewRate = apps.length > 0 ? interviewed.length / apps.length : 0;
+    // Fallback momentum score computed from real data when Gemini returns 0 or fails
+    const computedScore = Math.round(
+      Math.min(responseRate * 100 * 1.1, 45) +
+      Math.min(interviewRate * 100 * 2, 30) +
+      Math.min(weeklyApps.length * 5, 20) +
+      (apps.length >= 5 ? 5 : 0)
+    );
+    const aiScore = typeof result.momentumScore === 'number' && result.momentumScore > 0
+      ? result.momentumScore
+      : computedScore;
+
+    const defaultActions = [
+      { action: 'Follow up on applications older than 7 days', impact: 'HIGH', dueDate: null },
+      { action: 'Apply to 3–5 new roles matching your target', impact: 'HIGH', dueDate: null },
+      { action: 'Update your resume with missing keywords from rejections', impact: 'MEDIUM', dueDate: null },
+    ];
+
     const doc = {
       _id: briefingId,
       userId,
       weekNumber,
       generatedAt: now,
       applicationsSentThisWeek: weeklyApps.length,
-      responseRate: apps.length > 0 ? responded.length / apps.length : 0,
-      interviewRate: apps.length > 0 ? interviewed.length / apps.length : 0,
+      responseRate,
+      interviewRate,
       industryAvgResponseRate: 0.15,
-      momentumScore: result.momentumScore || 0,
+      momentumScore: aiScore,
       momentumTrend: result.momentumTrend || 'STABLE',
       bestPerformingCategory: result.bestPerformingCategory || '',
       worstPerformingCategory: result.worstPerformingCategory || '',
-      priorityActions: result.priorityActions || [],
+      priorityActions: (Array.isArray(result.priorityActions) && result.priorityActions.length > 0)
+        ? result.priorityActions
+        : defaultActions,
       pdfGenerated: false,
       pdfPath: null,
     };
@@ -80,10 +101,10 @@ router.get('/download/:briefingId', async (req, res) => {
 
     const pdf = new PDFDocument({ margin: 50, size: 'LETTER' });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="hireiq-briefing-week${briefing.weekNumber}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="retrofitai-briefing-week${briefing.weekNumber}.pdf"`);
     pdf.pipe(res);
 
-    pdf.font('Helvetica-Bold').fontSize(22).fillColor('#1a1a2e').text('HireIQ', { continued: true });
+    pdf.font('Helvetica-Bold').fontSize(22).fillColor('#1a1a2e').text('RetrofitAI', { continued: true });
     pdf.font('Helvetica').fontSize(22).fillColor('#6366f1').text(' Weekly Strategy Briefing');
     pdf.moveDown(0.3);
     pdf.font('Helvetica').fontSize(11).fillColor('#71717a')
@@ -126,7 +147,7 @@ router.get('/download/:briefingId', async (req, res) => {
 
     pdf.moveDown(1.5);
     pdf.font('Helvetica').fontSize(9).fillColor('#a1a1aa')
-      .text('HireIQ provides career guidance and organizational assistance. It is not a licensed career counselor or employment advisor.', {
+      .text('RetrofitAI provides career guidance and organizational assistance. It is not a licensed career counselor or employment advisor.', {
         align: 'center',
       });
 

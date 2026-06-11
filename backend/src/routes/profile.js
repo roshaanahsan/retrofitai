@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongo = require('../services/mongoService');
+const gemini = require('../services/geminiService');
 
 router.get('/', async (req, res) => {
   try {
@@ -28,6 +29,27 @@ router.patch('/', async (req, res) => {
   } catch (err) {
     console.error('Profile PATCH error:', err);
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// AI-powered profile extraction from resume text
+router.post('/infer-from-resume', async (req, res) => {
+  const userId = req.session.userId;
+  const { resumeText } = req.body;
+  if (!resumeText) return res.status(400).json({ error: 'resumeText required' });
+  try {
+    const fields = await gemini.extractProfileFromResume(resumeText);
+    const updates = { resumeText };
+    if (fields.currentRole) updates.currentRole = fields.currentRole;
+    if (fields.targetRole) updates.targetRole = fields.targetRole;
+    if (fields.targetIndustry) updates.targetIndustry = fields.targetIndustry;
+    if (fields.yearsExperience) updates.yearsExperience = fields.yearsExperience;
+    if (fields.skills?.length) updates.skills = fields.skills;
+    const profile = await mongo.updateProfile(userId, updates);
+    res.json(profile);
+  } catch (err) {
+    console.error('Resume inference error:', err);
+    res.status(500).json({ error: 'Failed to analyze resume' });
   }
 });
 

@@ -74,68 +74,18 @@ B.S. Computer Science — UC San Diego, 2017`,
   conversationHistory: [
     {
       role: 'agent',
-      text: "Welcome to HireIQ. I'm your AI career strategist. Let's start by understanding your current situation — what's your current role and how many years of experience do you have?",
-      timestamp: new Date('2026-04-28T10:00:00Z'),
-    },
-    {
-      role: 'user',
-      text: "I'm a Senior Software Engineer with 7 years of experience, mostly in payments infrastructure at PayPal.",
-      timestamp: new Date('2026-04-28T10:01:00Z'),
-    },
-    {
-      role: 'agent',
-      text: "Payments infrastructure at PayPal — solid background. What role and industry are you targeting next?",
-      timestamp: new Date('2026-04-28T10:01:30Z'),
-    },
-    {
-      role: 'user',
-      text: "Looking for Staff Engineer roles at fintech companies — Stripe, Plaid, that tier.",
-      timestamp: new Date('2026-04-28T10:02:00Z'),
-    },
-    {
-      role: 'agent',
-      text: "Good target set. What are your salary expectations and location preferences?",
-      timestamp: new Date('2026-04-28T10:02:30Z'),
-    },
-    {
-      role: 'user',
-      text: "220–280k base, fully remote preferred.",
-      timestamp: new Date('2026-04-28T10:03:00Z'),
-    },
-    {
-      role: 'agent',
-      text: "How urgent is your search — are you aiming to land something in 30 days, or are you exploring?",
-      timestamp: new Date('2026-04-28T10:03:30Z'),
-    },
-    {
-      role: 'user',
-      text: "Immediate — I want to be out of PayPal within 30 days if possible.",
-      timestamp: new Date('2026-04-28T10:04:00Z'),
-    },
-    {
-      role: 'agent',
-      text: "Understood. Paste your resume text and I'll extract your skills and build your full profile.",
-      timestamp: new Date('2026-04-28T10:04:30Z'),
-    },
-    {
-      role: 'user',
-      text: 'Full resume text on file (7 years PayPal, Capital One, Finix — payments infrastructure).',
-      timestamp: new Date('2026-04-28T10:05:30Z'),
-    },
-    {
-      role: 'agent',
-      text: "Profile complete. I've extracted 15 skills and saved your full profile. You're in active search mode. I've analyzed your pipeline — you have 5 applications with no response in 14+ days. Your rejection pattern suggests a PRE_INTERVIEW issue, likely resume framing or ATS keyword gaps. Want me to run a full pattern analysis?",
+      text: "Welcome back, Jordan. I've reviewed your pipeline. Two applications have gone cold and need attention.\n\nAffirm is now 34 days in — a follow-up was sent 14 days ago with no reply. Chime is 25 days in, applied via LinkedIn, zero acknowledgement. Both fit the ATS-filter signature: sub-7-day silence with no recruiter contact.\n\nOn the upside: Stripe came in with an offer — $265k base, decision deadline June 13. Plaid's final panel is scheduled for June 12. You're in a strong position at the top of the funnel but still losing 5 of 8 applications before a single phone screen. Want me to run the full rejection pattern analysis?",
       timestamp: new Date('2026-06-08T09:00:00Z'),
     },
     {
       role: 'user',
-      text: 'Yes, run the analysis.',
-      timestamp: new Date('2026-06-08T09:01:00Z'),
+      text: "Yes — run it. Why am I getting filtered before the phone screen?",
+      timestamp: new Date('2026-06-08T09:00:45Z'),
     },
     {
       role: 'agent',
-      text: "Analysis complete. You're losing at the pre-interview stage — 5 of 8 applications haven't reached a phone screen. The common thread across your rejections: your resume emphasizes execution (latency improvements, team mentoring) but Staff Engineer roles at fintech require explicit system design leadership and cross-org influence. Brex, Coinbase, and Mercury all list 'technical strategy' and 'architecture ownership' as must-haves — those phrases don't appear in your current resume. Recommended fix: reframe 3 bullet points to show org-level impact, add the keywords 'technical strategy', 'architecture review', and 'RFC'. That alone should move your ATS pass rate from ~35% to 65%+.",
-      timestamp: new Date('2026-06-08T09:02:00Z'),
+      text: "Pattern confirmed: PRE_INTERVIEW filtering, HIGH confidence.\n\n5 of your 8 applications never reached a phone screen. Of your 3 formal rejections, 2 (Brex, Mercury) were auto-rejected within 7 days and 1 (Coinbase) was cut after a recruiter screen. This is a resume-framing problem, not a skills problem.\n\nThe common thread: 'technical strategy', 'architecture ownership', and 'RFC process' appear in every target JD and in none of your current resume bullets. Staff Engineer roles at this tier use those phrases as ATS hard filters.\n\nTop fix: reframe 3 PayPal bullets to show org-level impact and add explicit mentions of RFC authorship. That should move your ATS pass rate from ~35% to 65%+. Want me to draft the rewrites?",
+      timestamp: new Date('2026-06-08T09:01:30Z'),
     },
   ],
 };
@@ -201,6 +151,41 @@ const applications = [
     followUpDate: null,
     daysSinceApply: 22,
     notes: 'Recruiter screen done. Waiting on technical screen scheduling.',
+  },
+  // APPLIED × 2 (freshly submitted)
+  {
+    _id: 'app_square_001',
+    userId: USER_ID,
+    jobAnalysisId: null,
+    company: 'Square',
+    role: 'Staff Engineer — Financial Services Platform',
+    appliedDate: daysAgo(3),
+    status: 'APPLIED',
+    statusHistory: [
+      { status: 'APPLIED', date: daysAgo(3) },
+    ],
+    rejectionStage: null,
+    followUpSent: false,
+    followUpDate: null,
+    daysSinceApply: 3,
+    notes: 'Applied via company portal. Strong match on payments experience.',
+  },
+  {
+    _id: 'app_nerdwallet_001',
+    userId: USER_ID,
+    jobAnalysisId: null,
+    company: 'NerdWallet',
+    role: 'Senior Software Engineer — Data Platform',
+    appliedDate: daysAgo(5),
+    status: 'APPLIED',
+    statusHistory: [
+      { status: 'APPLIED', date: daysAgo(5) },
+    ],
+    rejectionStage: null,
+    followUpSent: false,
+    followUpDate: null,
+    daysSinceApply: 5,
+    notes: 'Referred by former colleague. Awaiting recruiter outreach.',
   },
   // NO_RESPONSE × 2
   {
@@ -521,10 +506,10 @@ const rejectionPattern = {
 
 // ─── Weekly Briefing ──────────────────────────────────────────────────────────
 const weeklyBriefing = {
-  _id: `briefing_${USER_ID}_23`,
+  _id: `briefing_${USER_ID}_24`,
   userId: USER_ID,
-  weekNumber: 23,
-  generatedAt: new Date('2026-06-08T09:00:00Z'),
+  weekNumber: 24,
+  generatedAt: new Date('2026-06-11T09:00:00Z'),
   applicationsSentThisWeek: 2,
   responseRate: 0.375,
   interviewRate: 0.25,
@@ -537,17 +522,17 @@ const weeklyBriefing = {
     {
       action: 'Update resume with RFC authorship and technical strategy framing before applying to any new Staff roles',
       impact: 'HIGH',
-      dueDate: '2026-06-10',
+      dueDate: '2026-06-12',
     },
     {
-      action: 'Send follow-up to Plaid recruiter — final panel is 3 days away, confirm logistics and panel format',
+      action: 'Send follow-up to Plaid recruiter — final panel is tomorrow, confirm logistics and panel format',
       impact: 'HIGH',
-      dueDate: '2026-06-10',
+      dueDate: '2026-06-11',
     },
     {
       action: 'Evaluate Stripe offer — $265k base, decision deadline June 13. Request comp breakdown before deciding',
       impact: 'HIGH',
-      dueDate: '2026-06-11',
+      dueDate: '2026-06-13',
     },
   ],
   pdfGenerated: false,
@@ -556,36 +541,31 @@ const weeklyBriefing = {
 
 // ─── Seed ─────────────────────────────────────────────────────────────────────
 async function seed() {
-  await mongoose.connect(process.env.MONGODB_URI, { dbName: 'hireiq' });
-  console.log('Connected to MongoDB — hireiq');
+  await mongoose.connect(process.env.MONGODB_URI, { dbName: 'retrofitai' });
+  console.log('Connected to MongoDB — retrofitai');
 
   // Career profile
   await CareerProfile.replaceOne({ _id: USER_ID }, careerProfile, { upsert: true });
   console.log('✓ career_profiles — demo-user');
 
-  // Applications
-  let appCount = 0;
-  for (const app of applications) {
-    await Application.replaceOne({ _id: app._id }, app, { upsert: true });
-    appCount++;
-  }
-  console.log(`✓ applications — ${appCount} documents`);
+  // Applications — delete all demo apps first so test-created extras don't linger
+  await Application.deleteMany({ userId: USER_ID });
+  await Application.insertMany(applications);
+  console.log(`✓ applications — ${applications.length} documents`);
 
-  // Job analyses
-  let jaCount = 0;
-  for (const ja of jobAnalyses) {
-    await JobAnalysis.replaceOne({ _id: ja._id }, ja, { upsert: true });
-    jaCount++;
-  }
-  console.log(`✓ job_analyses — ${jaCount} documents`);
+  // Job analyses — delete all demo analyses first
+  await JobAnalysis.deleteMany({ userId: USER_ID });
+  await JobAnalysis.insertMany(jobAnalyses);
+  console.log(`✓ job_analyses — ${jobAnalyses.length} documents`);
 
   // Rejection pattern
   await RejectionPattern.replaceOne({ _id: rejectionPattern._id }, rejectionPattern, { upsert: true });
   console.log('✓ rejection_patterns — PRE_INTERVIEW / HIGH confidence');
 
-  // Weekly briefing
-  await WeeklyBriefing.replaceOne({ _id: weeklyBriefing._id }, weeklyBriefing, { upsert: true });
-  console.log('✓ weekly_briefings — week 23, momentum 68');
+  // Weekly briefing — delete ALL demo briefings first so stale week numbers don't shadow the seed
+  await WeeklyBriefing.deleteMany({ userId: USER_ID });
+  await WeeklyBriefing.create(weeklyBriefing);
+  console.log(`✓ weekly_briefings — week ${weeklyBriefing.weekNumber}, momentum ${weeklyBriefing.momentumScore}`);
 
   console.log('\nSeed complete. Demo user ID: demo-user');
   await mongoose.disconnect();

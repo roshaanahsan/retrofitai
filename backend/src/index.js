@@ -11,6 +11,7 @@ const jobRoutes = require('./routes/jobs');
 const applicationRoutes = require('./routes/applications');
 const insightRoutes = require('./routes/insights');
 const briefingRoutes = require('./routes/briefings');
+const resumeRoutes = require('./routes/resume');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,12 +24,22 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? process.env.FRONTEND_URL
-    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:3000'],
   credentials: true,
 }));
 app.use(express.json({ limit: '2mb' }));
 
 configureSession(app);
+
+// Auto-assign userId for any session that doesn't have one yet.
+// This ensures ?landing=true flows (which skip sessionInit) still have a stable userId.
+const crypto = require('crypto');
+app.use((req, _res, next) => {
+  if (req.session && !req.session.userId) {
+    req.session.userId = `user_${crypto.randomBytes(8).toString('hex')}`;
+  }
+  next();
+});
 
 app.use('/api/agent', agentRoutes);
 app.use('/api/profile', profileRoutes);
@@ -36,8 +47,9 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/insights', insightRoutes);
 app.use('/api/briefings', briefingRoutes);
+app.use('/api/resume', resumeRoutes);
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'hireiq-backend' }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'retrofitai-backend' }));
 
 app.use((err, _req, res, _next) => {
   console.error(err.stack);
@@ -47,7 +59,7 @@ app.use((err, _req, res, _next) => {
 async function start() {
   await connectDB();
   app.listen(PORT, () => {
-    console.log(`HireIQ backend running on port ${PORT}`);
+    console.log(`RetrofitAI backend running on port ${PORT}`);
   });
 }
 

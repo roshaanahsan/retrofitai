@@ -6,40 +6,40 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getMomentumColor(score: number): string {
-  if (score <= 40) return 'bg-red-500 text-white';
-  if (score <= 70) return 'bg-amber-500 text-black';
-  return 'bg-emerald-500 text-black';
+  if (score <= 40) return 'bg-red-100 text-red-700';
+  if (score <= 70) return 'bg-amber-100 text-amber-700';
+  return 'bg-green-100 text-green-700';
 }
 
 export function getVerdictStyle(verdict: string) {
   switch (verdict) {
     case 'APPLY_NOW':
-      return { label: 'Apply Now', className: 'text-emerald-500 font-bold text-base' };
+      return { label: 'Apply Now', className: 'font-semibold text-sm text-green-700' };
     case 'APPLY_WITH_EDITS':
-      return { label: 'Apply With Edits', className: 'text-amber-500 font-bold text-base' };
+      return { label: 'Apply With Edits', className: 'font-semibold text-sm text-amber-700' };
     case 'SKIP':
-      return { label: 'Skip This One', className: 'text-red-500 font-bold text-base' };
+      return { label: 'Skip This One', className: 'font-semibold text-sm text-red-600' };
     default:
-      return { label: verdict, className: 'text-zinc-400 font-bold text-base' };
+      return { label: verdict, className: 'font-semibold text-sm text-slate-500' };
   }
 }
 
 export function getStatusBadgeStyle(status: string): Record<string, string | number> {
   switch (status) {
     case 'APPLIED':
-      return { background: '#27272A', color: '#D4D4D8' };
+      return { background: '#F1F5F9', color: '#475569' };
     case 'NO_RESPONSE':
-      return { background: 'rgba(28,20,0,0.8)', color: '#FBBF24' };
+      return { background: '#FFFBEB', color: '#92400E' };
     case 'PHONE_SCREEN':
-      return { background: '#001a22', color: '#67e8f9' };
+      return { background: '#DCFCE7', color: '#15803D' };
     case 'INTERVIEW':
-      return { background: 'rgba(2,44,34,0.8)', color: '#34D399' };
+      return { background: '#F0FDF4', color: '#166534', fontWeight: 600 };
     case 'OFFER':
-      return { background: '#10B981', color: '#FFFFFF', fontWeight: 600 };
+      return { background: '#16A34A', color: '#FFFFFF', fontWeight: 600 };
     case 'REJECTED':
-      return { background: 'rgba(69,10,10,0.5)', color: '#F87171' };
+      return { background: '#FEF2F2', color: '#991B1B' };
     default:
-      return { background: '#27272A', color: '#A1A1AA' };
+      return { background: '#F1F5F9', color: '#64748B' };
   }
 }
 

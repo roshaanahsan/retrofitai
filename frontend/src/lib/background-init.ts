@@ -9,20 +9,22 @@ const BAYER8 = [
   63,31,55,23,61,29,53,21,
 ]
 
-// Sharp dithered wave — cyan
-const CR = 0,  CG = 229, CB = 255, ALPHA = 110   // #00e5ff @ ~43%
-// Glow layer — same color as wave
-const GR = 0,  GG = 229, GB = 255                 // #00e5ff
+// Sharp dithered wave — cyan @ opacity 0.4
+const CR = 0,  CG = 229, CB = 255, ALPHA = 102   // #00e5ff @ 40%
+// Glow layer — same color
+const GR = 0,  GG = 229, GB = 255
 
-const ZONE_H    = 0.22
 const GRAD_SPAN = 0.38
 const WAVE_AMP  = 0.32
 const SPEED     = 0.10
 
 export function initBackground() {
-  const PX = 3
+  const PX = 4
   const W  = Math.round(window.innerWidth  / PX)
   const H  = Math.round(window.innerHeight / PX)
+
+  // Wave occupies 80px at bottom of screen
+  const ZONE_H = 80 / window.innerHeight
 
   // ── Glow canvas: smooth gradient, CSS-blurred, rendered first (behind dithered) ──
   const glowCanvas = document.createElement('canvas')
@@ -65,6 +67,7 @@ export function initBackground() {
 
   function frame(now: number) {
     requestAnimationFrame(frame)
+    if (document.visibilityState === 'hidden') return
     if (now - lastFrame < 41) return   // ~24 fps
     lastFrame = now
 
@@ -93,9 +96,7 @@ export function initBackground() {
         }
 
         // ── Smooth glow layer (no dither — blur handles the softness) ──
-        // Concentrate alpha near the wave surface (shape near 0→1 transition)
-        // so the glow is strongest at the peaks, not in the solid base
-        const glowA = Math.round(shape * (1 - shape) * 4 * 200)
+        const glowA = Math.round(shape * (1 - shape) * 4 * 80)
         if (glowA > 0) {
           gd[i] = GR; gd[i+1] = GG; gd[i+2] = GB; gd[i+3] = glowA
         }

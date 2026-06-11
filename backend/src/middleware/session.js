@@ -5,12 +5,12 @@ const { v4: uuidv4 } = require('uuid');
 function configureSession(app) {
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || 'hireiq-dev-secret-change-in-prod',
+      secret: process.env.SESSION_SECRET || 'retrofitai-dev-secret-change-in-prod',
       resave: false,
       saveUninitialized: false,
       store: MongoStore.create({
         mongoUrl: process.env.MONGODB_URI,
-        dbName: 'hireiq',
+        dbName: 'retrofitai',
         collectionName: 'sessions',
         ttl: 30 * 24 * 60 * 60,
       }),

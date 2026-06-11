@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, ChevronRight, Clock, Zap, Search, BarChart3 } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, ChevronRight, Zap, Search, BarChart3, X, Pencil } from 'lucide-react';
 import { getApplications } from '@/lib/api';
-import { cn, formatStatus, getMomentumColor } from '@/lib/utils';
+import { cn, formatStatus } from '@/lib/utils';
 import type { CareerProfile, Application, RejectionPattern, WeeklyBriefing, View } from '@/types';
 
 interface DashboardViewProps {
@@ -12,12 +12,12 @@ interface DashboardViewProps {
   briefing: WeeklyBriefing | null;
   uiHints: { showPatternAlert: boolean; highlightStaleApplications: string[]; staleCount: number };
   onNavigate: (view: View) => void;
+  onEditProfile: () => void;
 }
 
 const PIPELINE_COLUMNS = ['APPLIED', 'NO_RESPONSE', 'PHONE_SCREEN', 'INTERVIEW', 'OFFER'] as const;
 
-// Smooth count-up hook
-function useCountUp(target: number, duration = 700) {
+function useCountUp(target: number, duration = 600) {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (target === 0) { setCount(0); return; }
@@ -25,9 +25,7 @@ function useCountUp(target: number, duration = 700) {
     const totalFrames = Math.round(duration / 16);
     const timer = setInterval(() => {
       frame++;
-      const progress = frame / totalFrames;
-      // ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
+      const eased = 1 - Math.pow(1 - frame / totalFrames, 3);
       setCount(Math.round(eased * target));
       if (frame >= totalFrames) { setCount(target); clearInterval(timer); }
     }, 16);
@@ -36,11 +34,34 @@ function useCountUp(target: number, duration = 700) {
   return count;
 }
 
+const CARD_STYLE = {
+  background: '#FFFFFF',
+  border: '1px solid #E2E8F0',
+  borderRadius: 18,
+  boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+  padding: '20px 24px',
+};
+
+const STAT_CARD_STYLE = {
+  background: 'linear-gradient(to right, #FFFFFF 0%, #C8D0DE 100%)',
+  border: '1px solid #E2E8F0',
+  borderRadius: 18,
+  boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+  padding: '20px 24px',
+};
+
 export default function DashboardView({
-  profile, applications, setApplications, pattern, briefing, uiHints, onNavigate,
+  profile, applications, setApplications, pattern, briefing, uiHints, onNavigate, onEditProfile,
 }: DashboardViewProps) {
+  const [dataLoading, setDataLoading] = useState(true);
+  const [staleAlertDismissed, setStaleAlertDismissed] = useState(false);
+  const [patternAlertDismissed, setPatternAlertDismissed] = useState(false);
+
   useEffect(() => {
-    getApplications().then(({ data }) => setApplications(data)).catch(console.error);
+    getApplications()
+      .then(({ data }) => setApplications(data))
+      .catch(console.error)
+      .finally(() => setDataLoading(false));
   }, [setApplications]);
 
   const totalApps = applications.length;
@@ -55,214 +76,239 @@ export default function DashboardView({
     return d >= weekAgo;
   }).length;
 
-  const hasAlerts = uiHints.staleCount > 0 || uiHints.showPatternAlert;
+  const hasAlerts = (uiHints.staleCount > 0 && !staleAlertDismissed) || (uiHints.showPatternAlert && pattern && !patternAlertDismissed);
 
   return (
-    <div className="p-6 space-y-7 max-w-[940px]">
+    <div className="p-8 max-w-[900px]" style={{ minHeight: '100%' }}>
 
-      {/* ── Brand header ──────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1
+      {/* Page header */}
+      <div className="mb-6 flex items-center gap-4">
+        <h1 style={{ fontSize: 32, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1 }}>
+          Dashboard
+        </h1>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {profile?.targetRole && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '6px 14px',
+                borderRadius: 18,
+                border: '1px solid #E2E8F0',
+                background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 28%, #FFFFFF 72%, #E8ECF3)',
+                boxShadow: '0 6px 30px rgba(0,0,0,0.09)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>
+                {profile.targetRole}
+              </span>
+              {profile.targetIndustry && (
+                <span style={{ fontSize: 13, fontWeight: 300, color: '#94A3B8', marginLeft: 6 }}>
+                  · {profile.targetIndustry}
+                </span>
+              )}
+            </div>
+          )}
+
+          {!profile?.targetRole && (
+            <p style={{ fontSize: 13, fontWeight: 300, color: '#94A3B8' }}>
+              Tell the agent your target role to get started.
+            </p>
+          )}
+
+          <button
+            onClick={onEditProfile}
+            title="Edit profile"
             style={{
-              fontSize: '32px',
-              lineHeight: 1,
-              fontFamily: '"Pixelify Sans", monospace',
-              fontWeight: 700,
+              width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+              background: 'transparent', border: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: '#C8D0DE', minHeight: 'unset',
+              transition: 'color 150ms, background 150ms',
+            }}
+            onMouseEnter={(e) => {
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.color = '#16A34A';
+              b.style.background = '#F0FDF4';
+            }}
+            onMouseLeave={(e) => {
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.color = '#C8D0DE';
+              b.style.background = 'transparent';
             }}
           >
-            <span style={{ color: '#FAFAFA' }}>Hire</span><span style={{ color: '#00e5ff' }}>IQ</span>
-          </h1>
-          <p className="text-[12px] mt-1" style={{ color: '#52525B' }}>
-            {profile?.targetRole ? (
-              <>
-                Targeting{' '}
-                <span style={{ color: '#A1A1AA' }}>{profile.targetRole}</span>
-                {profile.targetIndustry && <span style={{ color: '#3F3F46' }}> · {profile.targetIndustry}</span>}
-              </>
-            ) : (
-              'Tell the agent your target role to get started.'
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: '#3F3F46' }}>
-          <Clock size={11} />
-          <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+            <Pencil size={13} />
+          </button>
         </div>
       </div>
 
-      {/* ── Stat Cards ────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-3">
-        <StatCard
-          label="Applications"
-          value={totalApps}
-          sub={`${thisWeekApps > 0 ? `+${thisWeekApps}` : thisWeekApps} this week`}
-          trend={thisWeekApps > 0 ? 'up' : 'neutral'}
-          accentColor="#00e5ff"
-        />
-        <StatCard
-          label="Response Rate"
-          value={responseRate}
-          suffix="%"
-          sub={responseRate > 15 ? `+${responseRate - 15}pp vs avg` : `${15 - responseRate}pp below avg`}
-          trend={responseRate >= 15 ? 'up' : totalApps > 0 ? 'down' : 'neutral'}
-          accentColor={responseRate >= 15 ? '#10B981' : totalApps > 0 ? '#EF4444' : '#3F3F46'}
-        />
-        <StatCard
-          label="Interviews"
-          value={interviewed.length}
-          sub="reached interview stage"
-          trend={interviewed.length > 0 ? 'up' : 'neutral'}
-          accentColor={interviewed.length > 0 ? '#10B981' : '#3F3F46'}
-        />
-        <MomentumCard
-          score={momentumScore}
-          trend={briefing?.momentumTrend ?? null}
-        />
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        {dataLoading ? (
+          <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
+        ) : (
+          <>
+            <StatCard
+              label="Applications"
+              value={totalApps}
+              sub={thisWeekApps > 0 ? `+${thisWeekApps} this week` : 'None this week'}
+              trend={thisWeekApps > 0 ? 'up' : 'neutral'}
+            />
+            <StatCard
+              label="Response Rate"
+              value={responseRate}
+              suffix="%"
+              sub={totalApps === 0 ? 'No data yet' : responseRate > 15 ? `+${responseRate - 15}pp above avg` : `${15 - responseRate}pp below avg`}
+              trend={responseRate >= 15 ? 'up' : totalApps > 0 ? 'down' : 'neutral'}
+            />
+            <StatCard
+              label="Interviews"
+              value={interviewed.length}
+              sub="reached interview stage"
+              trend={interviewed.length > 0 ? 'up' : 'neutral'}
+            />
+            <MomentumCard score={momentumScore} trend={briefing?.momentumTrend ?? null} />
+          </>
+        )}
       </div>
 
-      {/* ── Alerts ────────────────────────────────────────────── */}
+      {/* Alerts */}
       {hasAlerts && (
-        <div className="space-y-2">
-          {uiHints.staleCount > 0 && (
+        <div className="space-y-2 mb-6">
+          {uiHints.staleCount > 0 && !staleAlertDismissed && (
             <AlertBanner
-              variant="amber"
+              variant="warning"
               icon={<AlertTriangle size={13} />}
               title={`${uiHints.staleCount} application${uiHints.staleCount > 1 ? 's' : ''} going cold`}
               sub="No response after 7+ days — consider sending follow-ups"
+              onDismiss={() => setStaleAlertDismissed(true)}
             />
           )}
-          {uiHints.showPatternAlert && pattern && (
+          {uiHints.showPatternAlert && pattern && !patternAlertDismissed && (
             <AlertBanner
-              variant="indigo"
+              variant="green"
               icon={<Lightbulb size={13} />}
               title="Pattern insight updated"
-              sub={`${pattern.totalRejections} data points — ${pattern.dominantPattern.replace(/_/g, ' ').toLowerCase()} detected`}
+              sub={`${pattern.totalRejections} data points · ${pattern.dominantPattern.replace(/_/g, ' ').toLowerCase()} detected`}
               onClick={() => onNavigate('insights')}
               cta="View →"
+              onDismiss={() => setPatternAlertDismissed(true)}
             />
           )}
         </div>
       )}
 
-      {/* ── Pipeline ──────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h2 className="text-sm font-semibold" style={{ color: '#FAFAFA' }}>Pipeline</h2>
+      {/* Pipeline preview */}
+      <div style={{ ...CARD_STYLE, background: 'linear-gradient(to bottom, #E8ECF3, #FFFFFF 28%, #FFFFFF 72%, #E8ECF3)', padding: 0, overflow: 'hidden' }}>
+        <div
+          className="flex items-center justify-between px-5 py-3"
+          style={{ borderBottom: '1px solid #E2E8F0' }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A', letterSpacing: '-0.01em' }}>Pipeline</span>
             <span
-              className="text-[11px] px-1.5 py-0.5 rounded"
-              style={{ background: 'rgba(39,39,42,0.60)', color: '#52525B' }}
+              className="text-xs font-medium px-1.5 py-0.5 rounded"
+              style={{ background: '#DCFCE7', color: '#16A34A' }}
             >
               {totalApps}
             </span>
           </div>
           <button
-            className="flex items-center gap-1 text-xs transition-colors"
-            style={{ color: '#52525B' }}
+            className="flex items-center gap-1 transition-colors duration-100"
+            style={{ fontSize: 12, color: '#16A34A', fontWeight: 500, minHeight: 'unset' }}
             onClick={() => onNavigate('pipeline')}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#00e5ff'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#52525B'; }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#15803D'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#16A34A'; }}
           >
-            Full view <ChevronRight size={12} />
+            Full view <ChevronRight size={11} />
           </button>
         </div>
 
-        {/* Stage funnel bar */}
-        {totalApps > 0 && (
-          <FunnelBar applications={applications} />
-        )}
-
-        <div className="flex gap-2.5 overflow-x-auto pb-1 mt-4">
-          {PIPELINE_COLUMNS.map((status) => (
-            <PipelineColumn
-              key={status}
-              status={status}
-              apps={applications.filter((a) => a.status === status)}
-              highlightIds={uiHints.highlightStaleApplications}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* ── Empty state CTA ────────────────────────────────────── */}
-      {totalApps === 0 && (
-        <EmptyStateCTA profile={profile} onNavigate={onNavigate} />
-      )}
-
-      {/* ── Skills on file ────────────────────────────────────── */}
-      {profile?.skills && profile.skills.length > 0 && (
-        <div
-          className="p-4 rounded-xl"
-          style={{ background: 'rgba(18,18,27,0.55)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)' }}
-        >
-          <p className="text-[11px] mb-3 uppercase tracking-widest font-medium" style={{ color: '#3F3F46' }}>
-            Skills on file
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {profile.skills.slice(0, 16).map((skill) => (
-              <span
-                key={skill}
-                className="text-[11px] px-2 py-0.5 rounded-md"
-                style={{ background: 'rgba(39,39,42,0.60)', color: '#71717A' }}
-              >
-                {skill}
-              </span>
+        {dataLoading ? (
+          <div className="px-5 py-5"><DashboardPipelineSkeleton /></div>
+        ) : (
+          <div className="flex gap-0 overflow-x-auto">
+            {PIPELINE_COLUMNS.map((status, i) => (
+              <PipelineColumn
+                key={status}
+                status={status}
+                apps={applications.filter((a) => a.status === status)}
+                highlightIds={uiHints.highlightStaleApplications}
+                isLast={i === PIPELINE_COLUMNS.length - 1}
+              />
             ))}
           </div>
+        )}
+      </div>
+
+      {/* Empty state */}
+      {!dataLoading && totalApps === 0 && (
+        <div className="mt-4">
+          <EmptyStateCTA profile={profile} onNavigate={onNavigate} />
         </div>
       )}
+
     </div>
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Sub-components ─────────────────────────────────────────────────────────
 
+function StatCardSkeleton() {
+  return (
+    <div style={CARD_STYLE}>
+      <div className="h-2.5 rounded animate-pulse mb-4" style={{ background: '#F1F5F9', width: '35%' }} />
+      <div className="h-8 rounded animate-pulse mb-3" style={{ background: '#F1F5F9', width: '45%' }} />
+      <div className="h-2.5 rounded animate-pulse" style={{ background: '#F1F5F9', width: '60%' }} />
+    </div>
+  );
+}
+
+function DashboardPipelineSkeleton() {
+  return (
+    <div className="flex gap-4">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="flex-1">
+          <div className="h-2.5 rounded animate-pulse mb-3" style={{ background: '#F1F5F9', width: '60%' }} />
+          <div className="space-y-2">
+            <div className="rounded-lg animate-pulse h-14" style={{ background: '#F8FAFC' }} />
+            <div className="rounded-lg animate-pulse h-14" style={{ background: '#F8FAFC' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function StatCard({
-  label, value, suffix = '', sub, trend, accentColor,
+  label, value, suffix = '', sub, trend,
 }: {
   label: string;
   value: number;
   suffix?: string;
   sub: string;
   trend: 'up' | 'down' | 'neutral';
-  accentColor: string;
 }) {
   const animated = useCountUp(value);
 
   return (
-    <div
-      className="rounded-xl p-4 flex flex-col relative overflow-hidden"
-      style={{
-        background: 'rgba(18,18,27,0.55)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20), 0 0 18px rgba(0,229,255,0.08)',
-      }}
-    >
-      <div
-        className="absolute inset-x-0 top-0 h-16 pointer-events-none"
-        style={{ background: `linear-gradient(to bottom, ${accentColor}0d, transparent)` }}
-      />
-
-      <p className="text-[10px] uppercase tracking-widest font-semibold mb-4 relative" style={{ color: '#52525B', letterSpacing: '0.1em' }}>
+    <div style={STAT_CARD_STYLE}>
+      <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8', marginBottom: 10 }}>
         {label}
       </p>
-
-      <p className="text-[38px] font-bold tabular-nums leading-none mb-3 relative" style={{ color: '#FAFAFA', letterSpacing: '-0.04em' }}>
-        {animated}<span style={{ fontSize: 22, fontWeight: 600, color: '#3F3F46', marginLeft: 4 }}>{suffix}</span>
+      <p style={{ fontSize: 34, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 10 }}>
+        {animated}<span style={{ fontSize: 15, fontWeight: 300, color: '#94A3B8', marginLeft: 4 }}>{suffix}</span>
       </p>
-
-      <div className="flex items-center gap-1.5 relative mt-auto pt-3" style={{ boxShadow: '0 -1px 0 0 rgba(255,255,255,0.05)' }}>
-        {trend === 'up' && <TrendingUp size={11} className="text-emerald-500 shrink-0" />}
-        {trend === 'down' && <TrendingDown size={11} className="text-red-400 shrink-0" />}
-        <p
-          className="text-[11px] font-medium"
-          style={{
-            color: trend === 'up' ? '#10B981' : trend === 'down' ? '#EF4444' : '#3F3F46',
-          }}
-        >
+      <div className="flex items-center gap-1.5" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 10 }}>
+        {trend === 'up' && <TrendingUp size={11} style={{ color: '#16A34A', flexShrink: 0 }} />}
+        {trend === 'down' && <TrendingDown size={11} style={{ color: '#DC2626', flexShrink: 0 }} />}
+        <p style={{
+          fontSize: 12,
+          fontWeight: 300,
+          color: trend === 'up' ? '#16A34A' : trend === 'down' ? '#DC2626' : '#94A3B8',
+        }}>
           {sub}
         </p>
       </div>
@@ -272,186 +318,190 @@ function StatCard({
 
 function MomentumCard({ score, trend }: { score: number | null; trend: string | null }) {
   const animated = useCountUp(score ?? 0);
-  const accentColor = score === null ? '#3F3F46' : score <= 40 ? '#EF4444' : score <= 70 ? '#F59E0B' : '#10B981';
 
   return (
-    <div
-      className="rounded-xl p-4 flex flex-col relative overflow-hidden"
-      style={{
-        background: 'rgba(18,18,27,0.55)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20), 0 0 18px rgba(0,229,255,0.08)',
-      }}
-    >
-      <div
-        className="absolute inset-x-0 top-0 h-16 pointer-events-none"
-        style={{ background: `linear-gradient(to bottom, ${accentColor}0d, transparent)` }}
-      />
-
-      <p className="text-[11px] uppercase tracking-widest font-medium mb-3 relative" style={{ color: '#52525B' }}>
+    <div style={STAT_CARD_STYLE}>
+      <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8', marginBottom: 10 }}>
         Momentum
       </p>
 
       {score !== null ? (
         <>
-          <div className="flex items-end gap-2 mb-2 relative">
-            <p className="text-[32px] font-semibold tabular-nums leading-none" style={{ color: '#FAFAFA', letterSpacing: '-0.03em' }}>
+          <div className="flex items-baseline gap-1.5" style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 34, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1 }}>
               {animated}
             </p>
-            <p className="text-base font-medium mb-1" style={{ color: '#3F3F46' }}>/100</p>
+            <p style={{ fontSize: 14, fontWeight: 300, color: '#94A3B8' }}>/100</p>
           </div>
-          {/* bar */}
-          <div className="h-1 rounded-full overflow-hidden mb-2 relative" style={{ background: '#27272A' }}>
-            <div
-              className="h-full rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${score}%`, background: accentColor }}
-            />
+          <div className="flex items-center gap-1.5" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 10 }}>
+            {trend === 'UP' && <TrendingUp size={11} style={{ color: '#16A34A', flexShrink: 0 }} />}
+            {trend === 'DOWN' && <TrendingDown size={11} style={{ color: '#DC2626', flexShrink: 0 }} />}
+            <p style={{
+              fontSize: 12,
+              fontWeight: 300,
+              color: trend === 'UP' ? '#16A34A' : trend === 'DOWN' ? '#DC2626' : '#94A3B8',
+            }}>
+              {trend === 'UP' ? 'Rising from last week' : trend === 'DOWN' ? 'Falling from last week' : 'Stable from last week'}
+            </p>
           </div>
-          <p className="text-[11px] font-medium relative" style={{
-            color: trend === 'UP' ? '#10B981' : trend === 'DOWN' ? '#EF4444' : '#3F3F46',
-          }}>
-            {trend === 'UP' ? '▲ trending up' : trend === 'DOWN' ? '▼ trending down' : '— stable'}
-          </p>
         </>
       ) : (
-        <p className="text-[32px] font-semibold tabular-nums leading-none mb-2 relative" style={{ color: '#27272A', letterSpacing: '-0.03em' }}>
-          —
-        </p>
+        <>
+          <p style={{ fontSize: 34, fontWeight: 700, color: '#E2E8F0', letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 10 }}>
+            —
+          </p>
+          <p style={{ fontSize: 12, fontWeight: 300, color: '#94A3B8', borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 10 }}>
+            Generate your first briefing
+          </p>
+        </>
       )}
     </div>
   );
 }
 
 function AlertBanner({
-  variant, icon, title, sub, onClick, cta,
+  variant, icon, title, sub, onClick, cta, onDismiss,
 }: {
-  variant: 'amber' | 'indigo';
+  variant: 'green' | 'warning';
   icon: ReactNode;
   title: string;
   sub: string;
   onClick?: () => void;
   cta?: string;
+  onDismiss?: () => void;
 }) {
-  const isAmber = variant === 'amber';
-  const style = isAmber
-    ? { bg: 'rgba(28,20,0,0.7)', border: 'rgba(245,158,11,0.15)', accent: '#F59E0B', title: '#FBBF24', sub: '#92400E' }
-    : { bg: 'rgba(0,30,40,0.6)', border: 'rgba(0,229,255,0.2)', accent: '#00e5ff', title: '#67e8f9', sub: '#0891b2' };
-
-  const Tag = onClick ? 'button' : 'div';
+  const s = {
+    bg: variant === 'warning' ? '#FFFBEB' : '#F0FDF4',
+    border: variant === 'warning' ? '#FDE68A' : '#BBF7D0',
+    iconColor: variant === 'warning' ? '#D97706' : '#16A34A',
+    titleColor: variant === 'warning' ? '#92400E' : '#15803D',
+    subColor: variant === 'warning' ? '#B45309' : '#166534',
+    ctaColor: variant === 'warning' ? '#D97706' : '#16A34A',
+  };
 
   return (
-    <Tag
-      {...(onClick ? { onClick } : {})}
-      className={cn('w-full text-left flex items-start gap-3 px-4 py-3 rounded-xl transition-colors duration-150', onClick && 'cursor-pointer')}
+    <div
+      onClick={onClick}
+      className={cn('w-full text-left flex items-center gap-3', onClick && 'cursor-pointer')}
       style={{
-        background: style.bg,
-        border: `1px solid ${style.border}`,
+        position: 'relative',
+        padding: '12px 16px',
+        paddingRight: onDismiss ? 34 : 16,
+        borderRadius: 18,
+        background: s.bg,
+        border: `1px solid ${s.border}`,
       }}
-      {...(onClick ? {
-        onMouseEnter: (e: React.MouseEvent) => {
-          (e.currentTarget as HTMLElement).style.filter = 'brightness(1.1)';
-        },
-        onMouseLeave: (e: React.MouseEvent) => {
-          (e.currentTarget as HTMLElement).style.filter = '';
-        },
-      } : {})}
     >
-      <span style={{ color: style.accent, marginTop: 1 }}>{icon}</span>
+      <span style={{ color: s.iconColor, flexShrink: 0 }}>{icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium" style={{ color: style.title }}>{title}</p>
-        <p className="text-xs mt-0.5" style={{ color: style.sub }}>{sub}</p>
+        <p style={{ fontSize: 13, fontWeight: 600, color: s.titleColor }}>{title}</p>
+        <p style={{ fontSize: 12, fontWeight: 300, color: s.subColor, marginTop: 1 }}>{sub}</p>
       </div>
       {cta && (
-        <span className="text-xs self-center shrink-0 font-medium" style={{ color: style.accent }}>
-          {cta}
-        </span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: s.ctaColor, flexShrink: 0 }}>{cta}</span>
       )}
-    </Tag>
-  );
-}
-
-// Shows a visual funnel/ratio of pipeline stages
-function FunnelBar({ applications }: { applications: Application[] }) {
-  const total = applications.length;
-  if (total === 0) return null;
-
-  const stages = [
-    { key: 'APPLIED', color: '#3F3F46' },
-    { key: 'NO_RESPONSE', color: '#F59E0B' },
-    { key: 'PHONE_SCREEN', color: '#00e5ff' },
-    { key: 'INTERVIEW', color: '#10B981' },
-    { key: 'OFFER', color: '#10B981' },
-    { key: 'REJECTED', color: '#EF4444' },
-  ];
-
-  return (
-    <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
-      {stages.map(({ key, color }) => {
-        const count = applications.filter((a) => a.status === key).length;
-        if (count === 0) return null;
-        const pct = (count / total) * 100;
-        return (
-          <div
-            key={key}
-            title={`${formatStatus(key)}: ${count}`}
-            className="h-full transition-all duration-500"
-            style={{ width: `${pct}%`, background: color, minWidth: 2 }}
-          />
-        );
-      })}
+      {onDismiss && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            background: 'transparent',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: variant === 'warning' ? '#FDE68A' : '#86EFAC',
+            minHeight: 'unset',
+            transition: 'background 120ms, color 120ms',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = variant === 'warning' ? '#FEF3C7' : '#DCFCE7';
+            (e.currentTarget as HTMLButtonElement).style.color = variant === 'warning' ? '#D97706' : '#15803D';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+            (e.currentTarget as HTMLButtonElement).style.color = variant === 'warning' ? '#FDE68A' : '#86EFAC';
+          }}
+        >
+          <X size={11} />
+        </button>
+      )}
     </div>
   );
 }
 
-const COLUMN_COLORS: Record<string, string> = {
-  APPLIED: '#71717A',
-  NO_RESPONSE: '#71717A',
-  PHONE_SCREEN: '#71717A',
-  INTERVIEW: '#71717A',
-  OFFER: '#71717A',
-};
-
 function PipelineColumn({
-  status, apps, highlightIds,
+  status, apps, highlightIds, isLast,
 }: {
   status: string;
   apps: Application[];
   highlightIds: string[];
+  isLast: boolean;
 }) {
-  const color = COLUMN_COLORS[status] ?? '#52525B';
-
   return (
-    <div className="shrink-0 w-44">
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide" style={{ color }}>
+    <div
+      className="flex-1 min-w-0 px-4 py-4"
+      style={{ borderRight: isLast ? 'none' : '1px solid #E2E8F0' }}
+    >
+      <div className="flex items-center gap-1.5 mb-3">
+        <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94A3B8' }}>
           {formatStatus(status)}
         </span>
         <span
-          className="text-[10px] tabular-nums font-semibold"
-          style={{ color: '#FAFAFA' }}
+          style={{ fontSize: 11, fontWeight: 600, color: '#16A34A', background: '#DCFCE7', padding: '1px 5px', borderRadius: 4 }}
         >
           {apps.length}
         </span>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {apps.slice(0, 3).map((app) => (
           <PipelineCard key={app._id} app={app} highlight={highlightIds.includes(app._id)} />
         ))}
         {apps.length === 0 && (
           <div
-            className="h-16 flex items-center justify-center rounded-lg"
-            style={{ boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.05)' }}
+            className="flex items-center justify-center"
+            style={{ height: 52, borderRadius: 18, border: '1px dashed #BBF7D0' }}
           >
-            <span className="text-[10px]" style={{ color: '#3F3F46' }}>Empty</span>
+            <span style={{ fontSize: 11, color: '#86EFAC' }}>Empty</span>
           </div>
         )}
         {apps.length > 3 && (
-          <p className="text-[10px] text-center py-0.5" style={{ color: '#3F3F46' }}>
+          <p style={{ fontSize: 11, color: '#94A3B8', textAlign: 'center', paddingTop: 4 }}>
             +{apps.length - 3} more
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+function PipelineCard({ app, highlight }: { app: Application; highlight: boolean }) {
+  const isStale = app.daysSinceApply > 7 || highlight;
+
+  return (
+    <div
+      style={{
+        background: '#F8FAFC',
+        border: '1px solid #E2E8F0',
+        borderRadius: 18,
+        padding: '8px 10px',
+      }}
+    >
+      <p style={{ fontSize: 13, fontWeight: 600, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+        {app.company}
+      </p>
+      <p style={{ fontSize: 11, fontWeight: 300, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+        {app.role}
+      </p>
+      <p style={{ fontSize: 11, fontWeight: 300, color: isStale ? '#D97706' : '#94A3B8', marginTop: 3 }}>
+        {app.daysSinceApply}d ago
+      </p>
     </div>
   );
 }
@@ -461,14 +511,14 @@ function EmptyStateCTA({ profile, onNavigate }: { profile: Partial<CareerProfile
   const steps = [
     {
       num: '1',
-      icon: <Zap size={13} />,
+      icon: <Zap size={12} />,
       title: hasProfile ? 'Profile built' : 'Build your profile',
-      sub: hasProfile ? `Targeting ${profile!.targetRole}` : 'Tell the agent your role, experience, and goals in the chat panel →',
+      sub: hasProfile ? `Targeting ${profile!.targetRole}` : 'Tell the agent your role, experience, and goals in the chat panel',
       done: hasProfile,
     },
     {
       num: '2',
-      icon: <Search size={13} />,
+      icon: <Search size={12} />,
       title: 'Analyze a job',
       sub: 'Paste any job description for an instant match score and tailored cover letter',
       done: false,
@@ -477,105 +527,86 @@ function EmptyStateCTA({ profile, onNavigate }: { profile: Partial<CareerProfile
     },
     {
       num: '3',
-      icon: <BarChart3 size={13} />,
+      icon: <BarChart3 size={12} />,
       title: 'Track 3+ rejections',
-      sub: 'Unlock Rejection Intelligence — the only tool that tells you why you\'re failing',
+      sub: "Unlock Rejection Intelligence — the tool that tells you why you're failing",
       done: false,
     },
   ];
 
   return (
-    <div
-      className="rounded-xl overflow-hidden"
-      style={{ background: 'rgba(18,18,27,0.55)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 2px 8px 0 rgba(0,0,0,0.20)' }}
-    >
-      {/* Header */}
-      <div
-        className="px-5 py-3 flex items-center justify-between"
-        style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.05)' }}
-      >
-        <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: '#52525B' }}>
+    <div style={{ ...CARD_STYLE }}>
+      <div className="flex items-center justify-between mb-4" style={{ paddingBottom: 12, borderBottom: '1px solid #F1F5F9' }}>
+        <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#94A3B8' }}>
           Getting started
         </p>
         <span
-          className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-          style={{ background: '#27272A', color: '#52525B' }}
+          style={{ fontSize: 11, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '2px 8px', borderRadius: 20 }}
         >
-          {steps.filter(s => s.done).length} / {steps.length}
+          {steps.filter((s) => s.done).length} / {steps.length}
         </span>
       </div>
 
-      {/* Steps */}
-      <div className="px-5 py-4 space-y-0">
+      <div className="space-y-0">
         {steps.map((step, i) => {
           const isLast = i === steps.length - 1;
           return (
-            <div key={i} className="flex gap-4">
-              {/* Left col: node + line */}
-              <div className="flex flex-col items-center" style={{ width: 28 }}>
-                {/* node circle */}
+            <div key={i} className="flex gap-3">
+              <div className="flex flex-col items-center" style={{ width: 24 }}>
                 <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold"
+                  className="flex items-center justify-center shrink-0"
                   style={{
-                    background: step.done ? '#001a22' : '#27272A',
-                    boxShadow: step.done ? '0 0 0 1.5px #00e5ff' : '0 0 0 1.5px rgba(255,255,255,0.08)',
-                    color: step.done ? '#00e5ff' : '#52525B',
-                    zIndex: 1,
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    background: step.done ? '#F0FDF4' : '#F8FAFC',
+                    border: step.done ? '1.5px solid #16A34A' : '1.5px solid #E2E8F0',
+                    color: step.done ? '#16A34A' : '#94A3B8',
+                    fontSize: 11,
+                    fontWeight: 700,
                   }}
                 >
                   {step.done ? (
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path d="M2 5.5L4.5 8L9 3" stroke="#00e5ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path d="M2 5L4.2 7.2L8 3" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   ) : (
                     step.num
                   )}
                 </div>
-                {/* connector line */}
                 {!isLast && (
                   <div
-                    className="flex-1 w-px my-1"
                     style={{
-                      background: step.done ? '#00e5ff' : '#3F3F46',
-                      minHeight: 28,
-                      opacity: step.done ? 0.4 : 1,
+                      flex: 1,
+                      width: 1,
+                      background: step.done ? '#BBF7D0' : '#E2E8F0',
+                      minHeight: 20,
+                      margin: '3px 0',
                     }}
                   />
                 )}
               </div>
 
-              {/* Right col: content */}
               <div className={cn('flex-1', isLast ? 'pb-1' : 'pb-4')}>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <p
-                    className="text-sm font-medium"
-                    style={{ color: step.done ? '#71717A' : '#FAFAFA' }}
-                  >
+                <div className="flex items-center gap-2" style={{ marginTop: 2 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: step.done ? '#94A3B8' : '#0F172A' }}>
                     {step.title}
                   </p>
                   {step.done && (
-                    <span
-                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                      style={{
-                        background: '#001a22',
-                        color: '#00e5ff',
-                        border: '1px solid rgba(99,102,241,0.25)',
-                      }}
-                    >
+                    <span style={{ fontSize: 10, fontWeight: 700, background: '#F0FDF4', color: '#16A34A', padding: '1px 6px', borderRadius: 4 }}>
                       Done
                     </span>
                   )}
                 </div>
-                <p className="text-xs mt-0.5 leading-relaxed" style={{ color: '#52525B' }}>
+                <p style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.5 }}>
                   {step.sub}
                 </p>
                 {step.action && (
                   <button
                     onClick={step.action}
-                    className="mt-2 text-[11px] font-semibold transition-colors"
-                    style={{ color: '#00e5ff' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#67e8f9'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#00e5ff'; }}
+                    style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: '#16A34A', background: 'none', border: 'none', padding: 0, cursor: 'pointer', minHeight: 'unset' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#15803D'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#16A34A'; }}
                   >
                     {step.cta}
                   </button>
@@ -585,34 +616,6 @@ function EmptyStateCTA({ profile, onNavigate }: { profile: Partial<CareerProfile
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function PipelineCard({ app, highlight }: { app: Application; highlight: boolean }) {
-  const isStale = app.daysSinceApply > 7;
-  const showAmber = isStale || highlight;
-
-  return (
-    <div
-      className="p-2.5 rounded-lg"
-      style={{
-        background: '#131316',
-        boxShadow: '0 1px 4px 0 rgba(0,0,0,0.16)',
-      }}
-    >
-      <p className="text-[12px] font-semibold truncate leading-tight" style={{ color: '#E4E4E7' }}>
-        {app.company}
-      </p>
-      <p className="text-[11px] truncate mt-0.5" style={{ color: '#52525B' }}>
-        {app.role}
-      </p>
-      <p
-        className="text-[10px] mt-1.5"
-        style={{ color: showAmber ? '#F59E0B' : '#3F3F46' }}
-      >
-        {app.daysSinceApply}d ago
-      </p>
     </div>
   );
 }

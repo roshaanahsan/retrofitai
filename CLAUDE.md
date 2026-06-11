@@ -1,4 +1,4 @@
-# HireIQ — CLAUDE.md
+# RetrofitAI — CLAUDE.md
 
 **Hackathon:** Building Agents for Real-World Challenges | MongoDB Track
 **Deadline:** June 11, 2026, 2:00 PM PT
@@ -9,9 +9,9 @@
 
 ## WHAT WE'RE BUILDING
 
-HireIQ is an AI career agent that detects WHY a user is failing their job search by analyzing rejection patterns across MongoDB documents — then rebuilds their strategy in real time.
+RetrofitAI is an AI career agent that detects WHY a user is failing their job search by analyzing rejection patterns across MongoDB documents — then rebuilds their strategy in real time.
 
-**One line:** "Every AI job tool helps you apply to more jobs. HireIQ is the first that tells you why you're failing."
+**One line:** "Every AI job tool helps you apply to more jobs. RetrofitAI is the first that tells you why you're failing."
 
 ---
 
@@ -123,7 +123,7 @@ worstPerformingCategory, priorityActions[], pdfGenerated
 - Never re-ask information already in the profile
 - Return structured JSON only — no markdown, no preamble
 - Tie every recommendation to user's specific MongoDB data
-- Disclaimer always present: "HireIQ provides career guidance, not licensed career counseling."
+- Disclaimer always present: "RetrofitAI provides career guidance, not licensed career counseling."
 
 ---
 

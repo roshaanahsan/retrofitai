@@ -13,10 +13,51 @@ export interface CareerProfile {
   conversationHistory: ConversationEntry[];
 }
 
+export type AgentActionType =
+  | 'JOB_ANALYSIS_RESULT'
+  | 'ADD_TO_PIPELINE_CONFIRM'
+  | 'FOLLOW_UP_EMAIL'
+  | 'WEEKLY_BRIEFING_RESULT'
+  | 'PROACTIVE_BRIEFING'
+  | 'ONBOARDING_COMPLETE'
+  | 'MISSION_DEBRIEF'
+  | 'PROFILE_EDIT_TRIGGER'
+  | 'PROFILE_EDIT_REQUEST'
+  | 'EDIT_PROFILE_SUGGEST'
+  | 'RECOMPARE_PROMPT';
+
+export interface FinalizeResult {
+  rankedJobs: {
+    _id: string;
+    jobTitle: string;
+    company: string;
+    matchScore: number;
+    verdict: string;
+    strongMatches: string[];
+    gaps: string[];
+  }[];
+  topJob: { _id: string; jobTitle: string; company: string; matchScore: number };
+  criticalGap: string | null;
+  criticalGapCount: number;
+  totalJobs: number;
+  newApplicationsCreated: number;
+  coverLetterReady: boolean;
+  coverLetterJobId: string;
+}
+
+export interface ProactiveAction {
+  id: string;
+  label: string;
+  intent: 'FOLLOW_UP' | 'PATTERN_ANALYSIS' | 'WEEKLY_REPORT';
+  company?: string;
+}
+
 export interface ConversationEntry {
   role: 'user' | 'agent';
   text: string;
   timestamp: string;
+  actionType?: AgentActionType | null;
+  actionData?: Record<string, unknown> | null;
 }
 
 export interface JobAnalysis {
@@ -95,6 +136,7 @@ export interface SessionInitResponse {
   agentMode: CareerProfile['agentMode'];
   profile: Partial<CareerProfile>;
   proactiveBriefing: string | null;
+  proactiveActions: ProactiveAction[];
   uiHints: {
     showPatternAlert: boolean;
     highlightStaleApplications: string[];
@@ -103,3 +145,50 @@ export interface SessionInitResponse {
 }
 
 export type View = 'dashboard' | 'analyze' | 'pipeline' | 'insights' | 'briefing';
+
+// ─── Autonomous Agent Types ───────────────────────────────────────────────────
+
+export interface AgentPipelineSummary {
+  appsScanned: number;
+  staleFound: number;
+  draftsCreated: number;
+  patternUpdated: boolean;
+  patternConfidence: string | null;
+  dominantPattern: string | null;
+  briefingGenerated: boolean;
+  momentumScore: number | null;
+  momentumTrend: string | null;
+}
+
+export interface AgentEvent {
+  type:
+    | 'agent_start'
+    | 'tool_call'
+    | 'tool_result'
+    | 'step_start'
+    | 'step_complete'
+    | 'pipeline_complete'
+    | 'pipeline_skip'
+    | 'pipeline_error';
+  ts: number;
+  message?: string;
+  op?: string;
+  collection?: string;
+  detail?: string;
+  company?: string;
+  result?: string;
+  summary?: AgentPipelineSummary;
+}
+
+export interface AgentDraft {
+  _id: string;
+  userId: string;
+  applicationId: string | null;
+  company: string;
+  role: string;
+  subject: string;
+  body: string;
+  status: 'pending' | 'sent' | 'dismissed';
+  createdAt: string;
+  runId: string | null;
+}

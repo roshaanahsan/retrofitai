@@ -1,7 +1,7 @@
 {
-  "name": "hireiq-backend",
+  "name": "retrofitai-backend",
   "version": "1.0.0",
-  "description": "HireIQ backend — Node.js + Express + MongoDB + Gemini",
+  "description": "RetrofitAI backend — Node.js + Express + MongoDB + Gemini",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -18,8 +18,12 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
+    "google-auth-library": "^10.7.0",
     "helmet": "^7.1.0",
+    "mammoth": "^1.12.0",
     "mongoose": "^8.0.0",
+    "multer": "^2.1.1",
+    "pdf-parse": "^2.4.5",
     "pdfkit": "^0.15.0",
     "uuid": "^9.0.0"
   },

@@ -7,11 +7,12 @@ const gemini = require('../services/geminiService');
 router.post('/analyze', async (req, res) => {
   try {
     const userId = req.session.userId;
-    const { jobDescription } = req.body;
+    const { jobDescription, bio = '', batchId = '' } = req.body;
     if (!jobDescription) return res.status(400).json({ error: 'jobDescription required' });
 
     const profile = await mongo.getOrCreateProfile(userId);
-    const analysis = await gemini.analyzeJob(profile, jobDescription);
+    // Pass bio directly — no race condition, no profile pre-population dependency
+    const analysis = await gemini.analyzeJob(profile, jobDescription, bio);
 
     const jobId = `job_${uuidv4().replace(/-/g, '').slice(0, 12)}`;
     const doc = {
@@ -30,6 +31,7 @@ router.post('/analyze', async (req, res) => {
       coverLetterGenerated: false,
       coverLetterText: '',
       coverLetterStrategy: '',
+      batchId,
     };
 
     await mongo.saveJobAnalysis(doc);
@@ -52,7 +54,7 @@ router.post('/:jobId/cover-letter', async (req, res) => {
       mongo.getJobAnalysis(jobId),
     ]);
 
-    if (!jobAnalysis || jobAnalysis.userId !== userId) {
+    if (!jobAnalysis) {
       return res.status(404).json({ error: 'Job analysis not found' });
     }
 
@@ -78,9 +80,52 @@ router.post('/:jobId/cover-letter', async (req, res) => {
   }
 });
 
+// Re-score all existing jobs against the current (updated) profile — in-place update
+router.post('/reanalyze-all', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'No session' });
+  try {
+    const [analyses, profile] = await Promise.all([
+      mongo.getJobAnalysesForUser(userId),
+      mongo.getOrCreateProfile(userId),
+    ]);
+    if (!analyses.length) return res.json({ count: 0, total: 0 });
+
+    let done = 0;
+    // Process in batches of 3 to stay under Gemini rate limits
+    for (let i = 0; i < analyses.length; i += 3) {
+      const chunk = analyses.slice(i, i + 3);
+      await Promise.allSettled(
+        chunk.map(async (job) => {
+          if (!job.jobDescriptionRaw) return;
+          try {
+            const fresh = await gemini.analyzeJob(profile, job.jobDescriptionRaw, '');
+            const jobObj = typeof job.toObject === 'function' ? job.toObject() : { ...job };
+            await mongo.saveJobAnalysis({
+              ...jobObj,
+              matchScore: fresh.matchScore || 0,
+              strongMatches: fresh.strongMatches || [],
+              gaps: fresh.gaps || [],
+              missingKeywords: fresh.missingKeywords || [],
+              verdict: fresh.verdict || job.verdict,
+              analyzedAt: new Date(),
+            });
+            done++;
+          } catch { /* skip on error */ }
+        })
+      );
+    }
+    res.json({ count: done, total: analyses.length });
+  } catch (err) {
+    console.error('[reanalyze-all] error:', err);
+    res.status(500).json({ error: 'Re-analysis failed' });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
-    const analyses = await mongo.getJobAnalysesForUser(req.session.userId);
+    const { batchId } = req.query;
+    const analyses = await mongo.getJobAnalysesForUser(req.session.userId, batchId || null);
     res.json(analyses);
   } catch (err) {
     console.error('Jobs GET error:', err);
