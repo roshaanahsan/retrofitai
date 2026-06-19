@@ -2,12 +2,12 @@
 
 **AI career agent that tells you why you're failing your job search — not just how to apply to more jobs.**
 
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://frontend-six-sigma-45.vercel.app)
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://frontend-six-sigma-45.vercel.app?landing=true)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MongoDB Track](https://img.shields.io/badge/hackathon-MongoDB%20Track-green)](https://rapid-agent.devpost.com)
 
-**Live app:** https://frontend-six-sigma-45.vercel.app  
-**Clean demo start:** https://frontend-six-sigma-45.vercel.app?landing=true
+**Live app:** https://frontend-six-sigma-45.vercel.app?landing=true  
+**Clean demo Video:** https://youtu.be/dhTnbFFptNI
 
 RetrofitAI analyzes rejection patterns across your application history, detects where in the hiring funnel you're losing, and rebuilds your strategy in real time — powered by **Gemini**, **MongoDB Atlas**, and the **MongoDB MCP Server**.
 
