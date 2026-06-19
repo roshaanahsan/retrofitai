@@ -2,7 +2,7 @@
 
 **AI career agent that tells you why you're failing your job search — not just how to apply to more jobs.**
 
-[![Live Demo](https://img.shields.io/badge/Demo-Live-8f7fe0?style=for-the-badge&logoColor=white)](https://frontend-six-sigma-45.vercel.app?landing=true)
+[![Live Demo](https://img.shields.io/badge/Demo-Live-8f7fe0?style=for-the-badge&logoColor=white)](https://youtu.be/dhTnbFFptNI)
 [![MIT License](https://img.shields.io/badge/License-MIT-7264b3?style=for-the-badge&logoColor=white)](LICENSE)
 [![MongoDB Track](https://img.shields.io/badge/Hackathon-MongoDB%20Track-171129?style=for-the-badge&logoColor=8f7fe0)](https://rapid-agent.devpost.com)
 
